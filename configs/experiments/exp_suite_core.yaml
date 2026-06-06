@@ -1,0 +1,12 @@
+suite:
+  name: core_controlled_matrix
+  experiments:
+    - configs/experiments/exp_00_logistic_basic.yaml
+    - configs/experiments/exp_01_logistic_timegap.yaml
+    - configs/experiments/exp_02_scratch_basic.yaml
+    - configs/experiments/exp_03_scratch_timegap.yaml
+    - configs/experiments/exp_04_scratch_timegap_static.yaml
+    - configs/experiments/exp_05_pretrain_basic.yaml
+    - configs/experiments/exp_06_pretrain_timegap.yaml
+    - configs/experiments/exp_07_pretrain_timegap_static.yaml
+

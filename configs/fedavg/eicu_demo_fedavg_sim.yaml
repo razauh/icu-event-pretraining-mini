@@ -1,0 +1,30 @@
+experiment:
+  name: fedavg_event_density_sim
+  seed: 42
+
+data:
+  dataset: eicu_demo
+  processed_dir: data/processed/eicu_demo
+  representation: timegap_static
+  split_strategy: event_density
+
+model:
+  type: icu_tiny_transformer
+  d_model: 64
+  n_heads: 4
+  n_layers: 2
+  dim_feedforward: 256
+  dropout: 0.1
+
+fedavg:
+  split_strategy: event_density
+  clients: 3
+  rounds: 3
+  local_epochs: 1
+  client_fraction: 1.0
+  aggregation: weighted_average_by_num_examples
+
+runtime:
+  device: cpu
+  num_workers: 0
+

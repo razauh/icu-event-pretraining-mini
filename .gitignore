@@ -1,0 +1,88 @@
+# Local agent/session metadata
+.agents/
+.codex/
+/AGENTS.md
+.docs/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Virtual environments and local dependency folders
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Python packaging/build outputs
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# eICU data must not be committed
+data/raw/
+data/processed/
+!data/README.md
+
+# Model checkpoints, tensor dumps, and large experiment artifacts
+checkpoints/
+artifacts/
+outputs/
+runs/
+lightning_logs/
+wandb/
+mlruns/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.pkl
+*.pickle
+*.joblib
+
+# Generated logs and temporary runtime files
+logs/
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Local databases and Optuna study state
+*.db
+*.sqlite
+*.sqlite3
+results/tuning/*.db
+results/tuning/*.sqlite*
+
+# Notebook and editor state
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db

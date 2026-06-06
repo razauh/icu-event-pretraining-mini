@@ -1,0 +1,9 @@
+experiment:
+  id: EXP-05
+  name: pretrain_basic_random
+representation: basic
+model: icu_tiny_transformer
+pretraining: true
+evaluation:
+  split: random
+

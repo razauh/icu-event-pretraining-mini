@@ -1,0 +1,9 @@
+experiment:
+  id: EXP-04
+  name: scratch_timegap_static_random
+representation: timegap_static
+model: icu_tiny_transformer
+pretraining: false
+evaluation:
+  split: random
+

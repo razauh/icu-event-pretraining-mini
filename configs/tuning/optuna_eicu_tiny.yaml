@@ -1,0 +1,27 @@
+study:
+  name: optuna_eicu_tiny
+  storage: sqlite:///results/tuning/optuna_study.db
+  direction: maximize
+  metric: val_average_precision
+  n_trials: 15
+  timeout_minutes: null
+
+search_space:
+  d_model: [32, 64, 96, 128]
+  n_layers: [1, 2, 3]
+  n_heads: [2, 4]
+  dim_feedforward: [128, 256, 512]
+  dropout: [0.0, 0.1, 0.2]
+  learning_rate:
+    type: loguniform
+    low: 0.0001
+    high: 0.001
+  mask_probability: [0.10, 0.15, 0.20]
+  max_seq_len: [64, 128, 256]
+
+trial_training:
+  pretrain_epochs: 2
+  finetune_epochs: 2
+  subset_fraction: 0.5
+  pruning: true
+

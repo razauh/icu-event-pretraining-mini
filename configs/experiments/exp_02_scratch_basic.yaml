@@ -1,0 +1,9 @@
+experiment:
+  id: EXP-02
+  name: scratch_basic_random
+representation: basic
+model: icu_tiny_transformer
+pretraining: false
+evaluation:
+  split: random
+

@@ -1,0 +1,9 @@
+{
+  "selected_experiment": null,
+  "selection_metric": "validation_average_precision",
+  "representation": null,
+  "model": "icu_tiny_transformer",
+  "pretraining": "masked_event_modeling",
+  "reason": "To be populated after controlled experiments."
+}
+

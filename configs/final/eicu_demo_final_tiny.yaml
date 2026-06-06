@@ -1,0 +1,49 @@
+experiment:
+  name: final_tuned_random
+  seed: 42
+
+data:
+  dataset: eicu_demo
+  raw_dir: data/raw/eicu_demo
+  processed_dir: data/processed/eicu_demo
+  representation: timegap_static
+  max_seq_len: 128
+  min_events_per_stay: 5
+
+model:
+  type: icu_tiny_transformer
+  d_model: 64
+  n_heads: 4
+  n_layers: 2
+  dim_feedforward: 256
+  dropout: 0.1
+
+pretraining:
+  enabled: true
+  objective: masked_event_modeling
+  mask_probability: 0.15
+  epochs: 5
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0005
+  weight_decay: 0.01
+
+finetuning:
+  task: mortality
+  epochs: 5
+  batch_size: 8
+  learning_rate: 0.0003
+  freeze_encoder: false
+
+evaluation:
+  split: random
+  metrics:
+    - auroc
+    - average_precision
+    - f1
+    - balanced_accuracy
+
+runtime:
+  device: cpu
+  num_workers: 0
+

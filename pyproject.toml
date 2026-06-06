@@ -1,0 +1,27 @@
+[project]
+name = "icu-event-pretraining-mini"
+version = "0.1.0"
+description = "CPU-friendly masked event pretraining prototype for eICU demo event streams."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "numpy",
+  "pandas",
+  "pyyaml",
+  "scikit-learn",
+  "torch",
+  "tqdm",
+]
+
+[project.optional-dependencies]
+tuning = ["optuna"]
+notebooks = ["jupyter", "matplotlib"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

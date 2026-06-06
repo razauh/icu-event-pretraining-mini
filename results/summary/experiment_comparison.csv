@@ -1,0 +1,2 @@
+experiment_id,experiment_name,representation,model,pretraining,split_strategy,auroc,average_precision,f1,balanced_accuracy,pretrain_val_loss,finetune_val_loss,num_parameters,max_seq_len,runtime_minutes,notes
+

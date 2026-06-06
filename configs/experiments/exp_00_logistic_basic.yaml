@@ -1,0 +1,9 @@
+experiment:
+  id: EXP-00
+  name: logistic_basic_random
+representation: basic
+model: logistic_regression
+pretraining: false
+evaluation:
+  split: random
+
