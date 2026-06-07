@@ -13,3 +13,4 @@ EVENT_FAMILIES = [
     "TIME_GAP",
 ]
 
+EVENT_REPRESENTATIONS = ["basic", "timegap", "timegap_static"]
