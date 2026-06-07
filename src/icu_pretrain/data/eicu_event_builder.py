@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import math
 from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
@@ -33,6 +34,9 @@ _CATEGORICAL_EVENT_FIELDS = (
     ("infusionDrug", "INFUSION", "drugname", "infusionoffset"),
     ("treatment", "TREATMENT", "treatmentstring", "treatmentoffset"),
 )
+_LAB_EVENT_FIELDS = ("labname", "labresult", "labresultoffset")
+_VITAL_TABLES = ("vitalPeriodic", "vitalAperiodic")
+_NUMERIC_METADATA_COLUMNS = frozenset({"patientunitstayid", "observationoffset"})
 _UNKNOWN_TEXT_VALUES = frozenset(
     {"", "n/a", "na", "none", "not available", "not recorded", "other", "unknown"}
 )
@@ -231,6 +235,168 @@ def _event_time(value: Any) -> EventTime:
         return None
     number = float(numeric)
     return int(number) if number.is_integer() else number
+
+
+def _numeric_value(value: Any) -> float | None:
+    if pd.isna(value) or isinstance(value, bool):
+        return None
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric):
+        return None
+    number = float(numeric)
+    return number if math.isfinite(number) else None
+
+
+def apply_numeric_bin(
+    value: Any, thresholds: tuple[float, float, float]
+) -> str | None:
+    """Apply fitted quartile thresholds to one numeric value."""
+    numeric = _numeric_value(value)
+    if numeric is None:
+        return None
+    if len(thresholds) != 3:
+        raise ValueError("thresholds must contain the 25th, 50th, and 75th percentiles")
+    if numeric <= thresholds[0]:
+        return "Q1"
+    if numeric <= thresholds[1]:
+        return "Q2"
+    if numeric <= thresholds[2]:
+        return "Q3"
+    return "Q4"
+
+
+def _iter_numeric_measurements(
+    tables: Mapping[str, pd.DataFrame],
+) -> Iterable[tuple[PatientStayId, str | None, Any, EventTime]]:
+    lab = tables.get("lab")
+    if lab is not None:
+        _require_stay_column(lab, "lab")
+        name_column, value_column, offset_column = _LAB_EVENT_FIELDS
+        if value_column in lab.columns:
+            for _, row in lab.iterrows():
+                stay_id = row["patientunitstayid"]
+                if pd.isna(stay_id):
+                    continue
+                measurement = (
+                    normalize_token_text(row[name_column])
+                    if name_column in lab.columns
+                    else None
+                )
+                event_time = (
+                    _event_time(row[offset_column])
+                    if offset_column in lab.columns
+                    else None
+                )
+                yield stay_id, (
+                    f"LAB::{measurement}" if measurement is not None else None
+                ), row[value_column], event_time
+
+    for table_name in _VITAL_TABLES:
+        frame = tables.get(table_name)
+        if frame is None:
+            continue
+        _require_stay_column(frame, table_name)
+        value_columns = [
+            column
+            for column in frame.columns
+            if column not in _NUMERIC_METADATA_COLUMNS
+            and not column.casefold().endswith("id")
+            and not column.casefold().endswith("offset")
+        ]
+        for _, row in frame.iterrows():
+            stay_id = row["patientunitstayid"]
+            if pd.isna(stay_id):
+                continue
+            event_time = (
+                _event_time(row["observationoffset"])
+                if "observationoffset" in frame.columns
+                else None
+            )
+            for column in value_columns:
+                measurement = normalize_token_text(column)
+                yield stay_id, (
+                    f"VITAL::{measurement}" if measurement is not None else None
+                ), row[column], event_time
+
+
+def fit_numeric_bins(
+    tables: Mapping[str, pd.DataFrame],
+) -> dict[str, tuple[float, float, float]]:
+    """Fit per-measurement quartile thresholds from lab and vital rows."""
+    if not isinstance(tables, Mapping):
+        raise ValueError("tables must be a mapping of eICU table names to DataFrames")
+
+    values_by_measurement: dict[str, list[float]] = {}
+    for _, measurement, value, _ in _iter_numeric_measurements(tables):
+        numeric = _numeric_value(value)
+        if measurement is None or numeric is None:
+            continue
+        values_by_measurement.setdefault(measurement, []).append(numeric)
+
+    thresholds: dict[str, tuple[float, float, float]] = {}
+    for measurement in sorted(values_by_measurement):
+        quantiles = pd.Series(values_by_measurement[measurement], dtype=float).quantile(
+            [0.25, 0.5, 0.75]
+        )
+        thresholds[measurement] = tuple(float(value) for value in quantiles)
+    return thresholds
+
+
+def extract_numeric_events(
+    tables: Mapping[str, pd.DataFrame],
+    thresholds: Mapping[str, tuple[float, float, float]],
+) -> tuple[
+    dict[PatientStayId, list[tuple[str, EventTime]]],
+    dict[str, int],
+]:
+    """Discretize lab and vital rows into deterministic patient-level events."""
+    if not isinstance(tables, Mapping):
+        raise ValueError("tables must be a mapping of eICU table names to DataFrames")
+    if not isinstance(thresholds, Mapping):
+        raise ValueError("thresholds must be a measurement-to-quantiles mapping")
+
+    grouped: dict[PatientStayId, list[tuple[str, EventTime]]] = {}
+    seen: dict[PatientStayId, set[tuple[str, EventTime]]] = {}
+    stats = {
+        "candidate_values": 0,
+        "emitted_events": 0,
+        "skipped_missing_measurement": 0,
+        "skipped_nonnumeric_value": 0,
+        "skipped_unfitted_measurement": 0,
+    }
+
+    for stay_id, measurement, value, event_time in _iter_numeric_measurements(tables):
+        stats["candidate_values"] += 1
+        if measurement is None:
+            stats["skipped_missing_measurement"] += 1
+            continue
+        numeric = _numeric_value(value)
+        if numeric is None:
+            stats["skipped_nonnumeric_value"] += 1
+            continue
+        measurement_thresholds = thresholds.get(measurement)
+        if measurement_thresholds is None:
+            stats["skipped_unfitted_measurement"] += 1
+            continue
+        label = apply_numeric_bin(numeric, measurement_thresholds)
+        token = f"{measurement}::{label}"
+        event = (token, event_time)
+        stay_seen = seen.setdefault(stay_id, set())
+        if event in stay_seen:
+            continue
+        grouped.setdefault(stay_id, []).append(event)
+        stay_seen.add(event)
+        stats["emitted_events"] += 1
+
+    for events in grouped.values():
+        events.sort(
+            key=lambda event: (
+                event[1] is None,
+                event[1] if event[1] is not None else 0,
+                event[0],
+            )
+        )
+    return dict(sorted(grouped.items(), key=lambda item: str(item[0]))), stats
 
 
 def _require_stay_column(frame: pd.DataFrame, table_name: str) -> None:

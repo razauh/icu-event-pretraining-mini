@@ -14,7 +14,7 @@ Last updated: 2026-06-07
 | TDD-03 - eICU Demo Table Loading | Implemented |
 | TDD-04 - Outcome Extraction | Implemented |
 | TDD-05 - Static, Diagnosis, Medication, Infusion, and Treatment Events | Implemented |
-| TDD-06 - Lab and Vital Numeric Discretization | Remaining |
+| TDD-06 - Lab and Vital Numeric Discretization | Implemented |
 | TDD-07 - Time-Gap Tokens and Full Event Stream Builder | Remaining |
 | TDD-08 - Prepare eICU Demo CLI | Remaining |
 | TDD-09 - Event Tokenizer and Vocabulary Artifacts | Remaining |
@@ -34,7 +34,7 @@ Last updated: 2026-06-07
 | TDD-23 - Rare-Pattern Memorisation Probe | Remaining |
 | TDD-24 - Result Tables, Figures, and Application Polish | Remaining |
 
-Progress: **6 implemented, 19 remaining.**
+Progress: **7 implemented, 18 remaining.**
 
 Notes from scaffold inspection:
 - The planned package directories already exist under `src/icu_pretrain/`.
@@ -295,7 +295,7 @@ Parallel-safe after dependencies:
 
 ---
 
-## TDD-06 - Lab and Vital Numeric Discretization
+## TDD-06 - Lab and Vital Numeric Discretization [Implemented]
 
 **Goal:** Convert continuous lab and vital values into compact quantile-bin event tokens.
 
