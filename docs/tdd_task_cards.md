@@ -11,9 +11,9 @@ Last updated: 2026-06-07
 | TDD-00 - Establish Test Harness and Package Sanity | Implemented |
 | TDD-01 - Configuration Loading and Validation Contracts | Implemented |
 | TDD-02 - Event Stream Data Contracts | Implemented |
-| TDD-03 - eICU Demo Table Loading | Remaining |
-| TDD-04 - Outcome Extraction | Remaining |
-| TDD-05 - Static, Diagnosis, Medication, Infusion, and Treatment Events | Remaining |
+| TDD-03 - eICU Demo Table Loading | Implemented |
+| TDD-04 - Outcome Extraction | Implemented |
+| TDD-05 - Static, Diagnosis, Medication, Infusion, and Treatment Events | Implemented |
 | TDD-06 - Lab and Vital Numeric Discretization | Remaining |
 | TDD-07 - Time-Gap Tokens and Full Event Stream Builder | Remaining |
 | TDD-08 - Prepare eICU Demo CLI | Remaining |
@@ -34,7 +34,7 @@ Last updated: 2026-06-07
 | TDD-23 - Rare-Pattern Memorisation Probe | Remaining |
 | TDD-24 - Result Tables, Figures, and Application Polish | Remaining |
 
-Progress: **3 implemented, 22 remaining.**
+Progress: **6 implemented, 19 remaining.**
 
 Notes from scaffold inspection:
 - The planned package directories already exist under `src/icu_pretrain/`.
@@ -180,7 +180,7 @@ Parallel-safe after dependencies:
 
 ---
 
-## TDD-03 - eICU Demo Table Loading
+## TDD-03 - eICU Demo Table Loading [Implemented]
 
 **Goal:** Load expected eICU demo CSV tables safely and fail clearly when required files or columns are missing.
 
@@ -218,7 +218,7 @@ Parallel-safe after dependencies:
 
 ---
 
-## TDD-04 - Outcome Extraction
+## TDD-04 - Outcome Extraction [Implemented]
 
 **Goal:** Extract one mortality/discharge-style binary outcome per `patientunitstayid`.
 
@@ -256,7 +256,7 @@ Parallel-safe after dependencies:
 
 ---
 
-## TDD-05 - Static, Diagnosis, Medication, Infusion, and Treatment Events
+## TDD-05 - Static, Diagnosis, Medication, Infusion, and Treatment Events [Implemented]
 
 **Goal:** Build deterministic non-numeric event tokens from synthetic eICU table rows.
 
