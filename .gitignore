@@ -40,10 +40,8 @@ pip-wheel-metadata/
 .env.*
 !.env.example
 
-# eICU data must not be committed
-data/raw/
-data/processed/
-!data/README.md
+# ICU data and derived artifacts must not be committed
+data/
 
 # Model checkpoints, tensor dumps, and large experiment artifacts
 checkpoints/

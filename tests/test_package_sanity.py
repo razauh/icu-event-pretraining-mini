@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import builtins
 import importlib
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
+import yaml
 
 import icu_pretrain
 from icu_pretrain.utils import load_yaml
@@ -40,6 +44,7 @@ PACKAGE_MODULES = (
     "icu_pretrain.analysis.plots",
     "icu_pretrain.analysis.tables",
 )
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_package_exposes_version() -> None:
@@ -70,6 +75,29 @@ def test_package_modules_import_without_data_or_optional_tools(
         assert importlib.import_module(module_name).__name__ == module_name
 
 
+def test_package_modules_import_from_clean_process() -> None:
+    module_lines = "\n".join(
+        f"import importlib; importlib.import_module({module_name!r})"
+        for module_name in PACKAGE_MODULES
+    )
+    env = os.environ.copy()
+    source_path = str(REPO_ROOT / "src")
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (source_path, env.get("PYTHONPATH", "")) if part
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", module_lines],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_load_yaml_returns_mapping(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("runtime:\n  device: cpu\n", encoding="utf-8")
@@ -89,4 +117,12 @@ def test_load_yaml_rejects_non_mapping(tmp_path: Path) -> None:
     config_path.write_text("- first\n- second\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Expected mapping"):
+        load_yaml(config_path)
+
+
+def test_load_yaml_rejects_malformed_yaml(tmp_path: Path) -> None:
+    config_path = tmp_path / "malformed.yaml"
+    config_path.write_text("runtime:\n  device: [cpu\n", encoding="utf-8")
+
+    with pytest.raises(yaml.YAMLError):
         load_yaml(config_path)
