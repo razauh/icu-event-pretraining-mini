@@ -1,9 +1,0 @@
-experiment:
-  id: EXP-01
-  name: logistic_timegap_random
-representation: timegap
-model: logistic_regression
-pretraining: false
-evaluation:
-  split: random
-

@@ -1,0 +1,8 @@
+experiment:
+  id: EXP-00
+  name: logistic_full_patient_grouped
+representation: timegap_static
+model: logistic_regression
+pretraining: false
+evaluation:
+  split: patient_grouped_test

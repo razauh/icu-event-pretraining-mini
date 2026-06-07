@@ -1,0 +1,8 @@
+experiment:
+  id: EXP-04
+  name: selected_model_hospital_grouped
+representation: timegap_static
+model: selected_model
+pretraining: selected
+evaluation:
+  split: hospital_grouped_cv

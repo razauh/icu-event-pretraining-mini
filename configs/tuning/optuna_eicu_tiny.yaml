@@ -3,25 +3,63 @@ study:
   storage: sqlite:///results/tuning/optuna_study.db
   direction: maximize
   metric: val_average_precision
-  n_trials: 15
-  timeout_minutes: null
+  n_trials: 8
+
+data:
+  dataset: eicu_demo
+  representation: timegap_static
+  outcome:
+    name: hospital_mortality
+    source_field: hospitaldischargestatus
+  observation_window:
+    start_minutes: 0
+    end_minutes: 1440
+  max_seq_len: 256
+  min_dynamic_events: 5
+
+split:
+  strategy: patient_grouped
+  group_key: uniquepid
+  stratify_by: hospital_mortality
+  seed: 42
+  ratios:
+    train: 0.70
+    validation: 0.15
+    test: 0.15
+
+preprocessing:
+  fit_on: train
+  vital_bucket_minutes: 60
+  lab_min_observations: 50
+  vital_min_observations: 50
 
 search_space:
-  d_model: [32, 64, 96, 128]
-  n_layers: [1, 2, 3]
+  d_model: [32, 64, 96]
+  n_layers: [1, 2]
   n_heads: [2, 4]
-  dim_feedforward: [128, 256, 512]
+  dim_feedforward: [128, 256]
   dropout: [0.0, 0.1, 0.2]
-  learning_rate:
-    type: loguniform
-    low: 0.0001
-    high: 0.001
+  learning_rate: [0.0001, 0.0003, 0.0005, 0.001]
   mask_probability: [0.10, 0.15, 0.20]
-  max_seq_len: [64, 128, 256]
+  max_seq_len: [256]
 
 trial_training:
   pretrain_epochs: 2
-  finetune_epochs: 2
-  subset_fraction: 0.5
-  pruning: true
+  finetune_epochs: 5
 
+runtime:
+  device: cpu
+  num_workers: 0
+  seed: 42
+
+data_processing:
+  csv_chunk_rows: 50000
+  partition_shards: 64
+  encoded_shard_stays: 128
+
+recovery:
+  enabled: true
+  log_every_batches: 10
+  checkpoint_every_optimizer_steps: 100
+  keep_last_checkpoints: 2
+  resume: auto

@@ -1,9 +1,8 @@
 experiment:
-  id: EXP-07
-  name: pretrain_timegap_static_random
+  id: EXP-02
+  name: pretrained_full_patient_grouped
 representation: timegap_static
 model: icu_tiny_transformer
 pretraining: true
 evaluation:
-  split: random
-
+  split: patient_grouped_test

@@ -1,9 +1,8 @@
 experiment:
-  id: EXP-05
-  name: pretrain_basic_random
+  id: EXP-03
+  name: pretrained_no_static_no_gap
 representation: basic
 model: icu_tiny_transformer
 pretraining: true
 evaluation:
-  split: random
-
+  split: patient_grouped_test

@@ -1,5 +1,5 @@
 experiment:
-  name: final_tuned_random
+  name: eicu_demo_final_tiny
   seed: 42
 
 data:
@@ -7,11 +7,34 @@ data:
   raw_dir: data/raw/eicu_demo
   processed_dir: data/processed/eicu_demo
   representation: timegap_static
-  max_seq_len: 128
-  min_events_per_stay: 5
+  outcome:
+    name: hospital_mortality
+    source_field: hospitaldischargestatus
+  observation_window:
+    start_minutes: 0
+    end_minutes: 1440
+  max_seq_len: 256
+  min_dynamic_events: 5
+
+split:
+  strategy: patient_grouped
+  group_key: uniquepid
+  stratify_by: hospital_mortality
+  seed: 42
+  ratios:
+    train: 0.70
+    validation: 0.15
+    test: 0.15
+
+preprocessing:
+  fit_on: train
+  vital_bucket_minutes: 60
+  lab_min_observations: 50
+  vital_min_observations: 50
 
 model:
   type: icu_tiny_transformer
+  max_seq_len: 256
   d_model: 64
   n_heads: 4
   n_layers: 2
@@ -29,14 +52,18 @@ pretraining:
   weight_decay: 0.01
 
 finetuning:
-  task: mortality
-  epochs: 5
+  task: hospital_mortality
+  epochs: 10
   batch_size: 8
   learning_rate: 0.0003
+  weight_decay: 0.01
+  early_stopping_patience: 3
+  selection_metric: validation_average_precision
   freeze_encoder: false
 
 evaluation:
-  split: random
+  split: patient_grouped_test
+  selection_metric: validation_average_precision
   metrics:
     - auroc
     - average_precision
@@ -46,4 +73,16 @@ evaluation:
 runtime:
   device: cpu
   num_workers: 0
+  seed: 42
 
+data_processing:
+  csv_chunk_rows: 50000
+  partition_shards: 64
+  encoded_shard_stays: 128
+
+recovery:
+  enabled: true
+  log_every_batches: 10
+  checkpoint_every_optimizer_steps: 100
+  keep_last_checkpoints: 2
+  resume: auto

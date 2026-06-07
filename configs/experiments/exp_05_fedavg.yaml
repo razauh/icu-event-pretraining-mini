@@ -1,0 +1,9 @@
+experiment:
+  id: EXP-05
+  name: pretrained_hospital_cluster_fedavg
+representation: timegap_static
+model: icu_tiny_transformer
+pretraining: true
+optional: true
+evaluation:
+  split: hospital_cluster_simulation

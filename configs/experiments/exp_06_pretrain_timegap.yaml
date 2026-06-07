@@ -1,9 +1,0 @@
-experiment:
-  id: EXP-06
-  name: pretrain_timegap_random
-representation: timegap
-model: icu_tiny_transformer
-pretraining: true
-evaluation:
-  split: random
-

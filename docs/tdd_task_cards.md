@@ -14,7 +14,7 @@ Last updated: 2026-06-07
 | Task card | Status |
 |---|---|
 | TDD-00 - Test Harness and Package Safety | Implemented |
-| TDD-01 - Dataset-Grounded Configuration Contracts | Remaining |
+| TDD-01 - Dataset-Grounded Configuration Contracts | Implemented |
 | TDD-02 - Cohort, Outcome, Event, and Artifact Contracts | Remaining |
 | TDD-03 - Versioned eICU Demo Table Discovery and Loading | Remaining |
 | TDD-04 - Primary Outcome and 24-Hour Cohort Eligibility | Remaining |
@@ -39,7 +39,7 @@ Last updated: 2026-06-07
 | TDD-23 - Optional Memorisation Diagnostic | Remaining |
 | TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
 
-Progress: **1 implemented, 24 remaining.**
+Progress: **2 implemented, 23 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
@@ -133,7 +133,7 @@ synthetic fixtures.
 
 ## TDD-01 - Dataset-Grounded Configuration Contracts
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Validate configuration against the revised 24-hour protocol and
 reduced experiment matrix.

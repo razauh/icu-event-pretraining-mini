@@ -1,15 +1,40 @@
 experiment:
-  name: fedavg_event_density_sim
-  seed: 42
+  id: EXP-05
+  name: eicu_demo_hospital_cluster_fedavg
+  optional: true
 
 data:
   dataset: eicu_demo
   processed_dir: data/processed/eicu_demo
   representation: timegap_static
-  split_strategy: event_density
+  outcome:
+    name: hospital_mortality
+    source_field: hospitaldischargestatus
+  observation_window:
+    start_minutes: 0
+    end_minutes: 1440
+  max_seq_len: 256
+  min_dynamic_events: 5
+
+split:
+  strategy: patient_grouped
+  group_key: uniquepid
+  stratify_by: hospital_mortality
+  seed: 42
+  ratios:
+    train: 0.70
+    validation: 0.15
+    test: 0.15
+
+preprocessing:
+  fit_on: train
+  vital_bucket_minutes: 60
+  lab_min_observations: 50
+  vital_min_observations: 50
 
 model:
   type: icu_tiny_transformer
+  max_seq_len: 256
   d_model: 64
   n_heads: 4
   n_layers: 2
@@ -17,14 +42,26 @@ model:
   dropout: 0.1
 
 fedavg:
-  split_strategy: event_density
+  client_grouping: hospital_cluster
   clients: 3
   rounds: 3
   local_epochs: 1
   client_fraction: 1.0
-  aggregation: weighted_average_by_num_examples
+  aggregation: weighted_average_by_num_training_stays
 
 runtime:
   device: cpu
   num_workers: 0
+  seed: 42
 
+data_processing:
+  csv_chunk_rows: 50000
+  partition_shards: 64
+  encoded_shard_stays: 128
+
+recovery:
+  enabled: true
+  log_every_batches: 10
+  checkpoint_every_optimizer_steps: 100
+  keep_last_checkpoints: 2
+  resume: auto
