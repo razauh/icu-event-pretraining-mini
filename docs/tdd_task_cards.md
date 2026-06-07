@@ -15,7 +15,7 @@ Last updated: 2026-06-07
 | TDD-04 - Outcome Extraction | Implemented |
 | TDD-05 - Static, Diagnosis, Medication, Infusion, and Treatment Events | Implemented |
 | TDD-06 - Lab and Vital Numeric Discretization | Implemented |
-| TDD-07 - Time-Gap Tokens and Full Event Stream Builder | Remaining |
+| TDD-07 - Time-Gap Tokens and Full Event Stream Builder | Implemented |
 | TDD-08 - Prepare eICU Demo CLI | Remaining |
 | TDD-09 - Event Tokenizer and Vocabulary Artifacts | Remaining |
 | TDD-10 - Splits and Pseudo-Client Grouping | Remaining |
@@ -34,7 +34,7 @@ Last updated: 2026-06-07
 | TDD-23 - Rare-Pattern Memorisation Probe | Remaining |
 | TDD-24 - Result Tables, Figures, and Application Polish | Remaining |
 
-Progress: **7 implemented, 18 remaining.**
+Progress: **8 implemented, 17 remaining.**
 
 Notes from scaffold inspection:
 - The planned package directories already exist under `src/icu_pretrain/`.
@@ -334,7 +334,7 @@ Parallel-safe after dependencies:
 
 ---
 
-## TDD-07 - Time-Gap Tokens and Full Event Stream Builder
+## TDD-07 - Time-Gap Tokens and Full Event Stream Builder [Implemented]
 
 **Goal:** Assemble chronological patient-level sequences for `basic`, `timegap`, and `timegap_static` representations.
 

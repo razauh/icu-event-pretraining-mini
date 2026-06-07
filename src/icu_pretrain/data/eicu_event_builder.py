@@ -682,6 +682,151 @@ def read_event_streams_jsonl(path: str | Path) -> list[EventStream]:
     return streams
 
 
-def build_event_streams() -> None:
-    """Placeholder for the event stream builder implementation."""
-    raise NotImplementedError("Event stream construction is not implemented yet.")
+def _time_gap_token(gap_minutes: float) -> str | None:
+    """Return a compact token for a positive interval measured in minutes."""
+    if gap_minutes <= 0:
+        return None
+    if gap_minutes <= 15:
+        bucket = "LE_15M"
+    elif gap_minutes <= 60:
+        bucket = "15M_1H"
+    elif gap_minutes <= 180:
+        bucket = "1H_3H"
+    elif gap_minutes <= 360:
+        bucket = "3H_6H"
+    elif gap_minutes <= 720:
+        bucket = "6H_12H"
+    elif gap_minutes <= 1440:
+        bucket = "12H_24H"
+    else:
+        bucket = "GT_24H"
+    return f"TIME_GAP::{bucket}"
+
+
+def _insert_time_gap_events(
+    events: list[tuple[str, EventTime]],
+) -> list[tuple[str, EventTime]]:
+    """Insert gaps between consecutive timed clinical events."""
+    with_gaps: list[tuple[str, EventTime]] = []
+    previous_time: int | float | None = None
+    for token, event_time in events:
+        if event_time is not None and previous_time is not None:
+            gap_token = _time_gap_token(event_time - previous_time)
+            if gap_token is not None:
+                with_gaps.append((gap_token, event_time))
+        with_gaps.append((token, event_time))
+        if event_time is not None:
+            previous_time = event_time
+    return with_gaps
+
+
+def _all_stay_ids(tables: Mapping[str, pd.DataFrame]) -> set[PatientStayId]:
+    stay_ids: set[PatientStayId] = set()
+    for frame in tables.values():
+        if isinstance(frame, pd.DataFrame) and "patientunitstayid" in frame.columns:
+            stay_ids.update(frame["patientunitstayid"].dropna().tolist())
+    return stay_ids
+
+
+def build_event_streams(
+    tables: Mapping[str, pd.DataFrame],
+    representation: str,
+    min_events_per_stay: int,
+) -> tuple[list[EventStream], pd.DataFrame, EventStats]:
+    """Build validated event streams, aligned outcomes, and aggregate stats."""
+    if not isinstance(tables, Mapping):
+        raise ValueError("tables must be a mapping of eICU table names to DataFrames")
+    if representation not in EVENT_REPRESENTATIONS:
+        choices = ", ".join(EVENT_REPRESENTATIONS)
+        raise ValueError(f"representation must be one of: {choices}")
+    if (
+        isinstance(min_events_per_stay, bool)
+        or not isinstance(min_events_per_stay, int)
+        or min_events_per_stay < 1
+    ):
+        raise ValueError("min_events_per_stay must be a positive integer")
+
+    outcomes = extract_outcomes(tables)
+    outcome_by_stay = dict(
+        zip(outcomes["patientunitstayid"], outcomes["mortality"], strict=True)
+    )
+    categorical = extract_categorical_events(tables, representation=representation)
+    thresholds = fit_numeric_bins(tables)
+    numeric, _ = extract_numeric_events(tables, thresholds)
+    all_stay_ids = _all_stay_ids(tables) | set(categorical) | set(numeric)
+
+    streams: list[EventStream] = []
+    kept_outcomes: list[dict[str, Any]] = []
+    family_counts = {family: 0 for family in EVENT_FAMILIES}
+    sequence_lengths: list[int] = []
+
+    for stay_id in sorted(all_stay_ids, key=lambda value: str(value)):
+        if stay_id not in outcome_by_stay:
+            continue
+
+        static_events = [
+            event
+            for event in categorical.get(stay_id, [])
+            if event[0].startswith("STATIC::")
+        ]
+        clinical_events = [
+            event
+            for event in categorical.get(stay_id, [])
+            if not event[0].startswith("STATIC::")
+        ]
+        clinical_events.extend(numeric.get(stay_id, []))
+        clinical_events = list(dict.fromkeys(clinical_events))
+        clinical_events.sort(
+            key=lambda event: (
+                event[1] is None,
+                event[1] if event[1] is not None else 0,
+                event[0],
+            )
+        )
+        if representation in {"timegap", "timegap_static"}:
+            clinical_events = _insert_time_gap_events(clinical_events)
+
+        combined = [*static_events, *clinical_events]
+        if len(combined) < min_events_per_stay:
+            continue
+
+        stream = EventStream(
+            patientunitstayid=stay_id,
+            events=[token for token, _ in combined],
+            event_times=[event_time for _, event_time in combined],
+            representation=representation,
+        )
+        validate_event_stream(stream, min_events_per_stay=min_events_per_stay)
+        streams.append(stream)
+        kept_outcomes.append(
+            {
+                "patientunitstayid": stay_id,
+                "mortality": int(outcome_by_stay[stay_id]),
+            }
+        )
+        sequence_lengths.append(len(stream.events))
+        for token in stream.events:
+            family_counts[token.partition("::")[0]] += 1
+
+    filtered_outcomes = pd.DataFrame.from_records(
+        kept_outcomes, columns=["patientunitstayid", "mortality"]
+    )
+    if not filtered_outcomes.empty:
+        filtered_outcomes["mortality"] = filtered_outcomes["mortality"].astype(int)
+    filtered_outcomes.attrs["outcome_stats"] = outcomes.attrs.get("outcome_stats", {})
+
+    stats = EventStats(
+        total_stays=len(all_stay_ids),
+        kept_stays=len(streams),
+        skipped_stays=len(all_stay_ids) - len(streams),
+        min_sequence_length=min(sequence_lengths, default=0),
+        max_sequence_length=max(sequence_lengths, default=0),
+        median_sequence_length=(
+            float(pd.Series(sequence_lengths, dtype=float).median())
+            if sequence_lengths
+            else 0.0
+        ),
+        token_family_counts=family_counts,
+    )
+    validate_event_stats(stats)
+    return streams, filtered_outcomes, stats
