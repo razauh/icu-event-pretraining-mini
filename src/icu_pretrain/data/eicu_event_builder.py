@@ -27,15 +27,7 @@ PatientStayId = int | str
 EventTime = int | float | None
 
 
-OUTCOME_FIELDS = (
-    ("patient", "hospitaldischargestatus"),
-    ("apachePatientResult", "actualhospitalmortality"),
-    ("patient", "unitdischargestatus"),
-    ("apachePatientResult", "actualicumortality"),
-)
 
-_NEGATIVE_OUTCOME_LABELS = frozenset({"0", "alive", "survived"})
-_POSITIVE_OUTCOME_LABELS = frozenset({"1", "dead", "died", "expired"})
 
 _CATEGORICAL_EVENT_FIELDS = (
     ("diagnosis", "DX", "diagnosisstring", "diagnosisoffset"),
@@ -1074,98 +1066,115 @@ def extract_categorical_events(
     }
 
 
-def _normalize_outcome_label(value: Any) -> int | None:
-    """Return a binary outcome only for explicit, unambiguous values."""
-    if pd.isna(value) or isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        if value == 0:
-            return 0
-        if value == 1:
-            return 1
-        return None
-
-    normalized = str(value).strip().casefold()
-    if normalized in _NEGATIVE_OUTCOME_LABELS:
-        return 0
-    if normalized in _POSITIVE_OUTCOME_LABELS:
-        return 1
-    return None
-
-
-def _labels_by_stay(
-    frame: pd.DataFrame, table_name: str, field: str
-) -> tuple[dict[Any, int], set[Any]]:
-    if "patientunitstayid" not in frame.columns:
-        raise ValueError(
-            f"eICU demo table '{table_name}' is missing required column: "
-            "patientunitstayid"
-        )
-
-    labels: dict[Any, int] = {}
-    conflicts: set[Any] = set()
-    for stay_id, group in frame.groupby("patientunitstayid", sort=False, dropna=False):
-        if pd.isna(stay_id):
-            continue
-        normalized = {
-            label
-            for label in (_normalize_outcome_label(value) for value in group[field])
-            if label is not None
-        }
-        if len(normalized) == 1:
-            labels[stay_id] = normalized.pop()
-        elif len(normalized) > 1:
-            conflicts.add(stay_id)
-    return labels, conflicts
-
-
 def extract_outcomes(tables: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
-    """Extract one conservative mortality-style binary label per ICU stay.
-
-    Hospital-level fields take precedence over ICU-level fallback fields. Stays
-    with unavailable or conflicting labels are omitted rather than treated as
-    survivors. Aggregate exclusion counts are stored in ``DataFrame.attrs``.
-    """
     if not isinstance(tables, Mapping):
         raise ValueError("tables must be a mapping of eICU table names to DataFrames")
+    if "patient" not in tables:
+        raise ValueError("patient table is required for outcome extraction")
+    patient_df = tables["patient"]
+    required_cols = {"patientunitstayid", "uniquepid", "hospitalid", "hospitaldischargestatus", "unitdischargeoffset"}
+    missing_cols = required_cols.difference(patient_df.columns)
+    if missing_cols:
+        raise ValueError(f"patient table is missing required columns: {', '.join(sorted(missing_cols))}")
 
-    available_fields = [
-        (table_name, field)
-        for table_name, field in OUTCOME_FIELDS
-        if table_name in tables and field in tables[table_name].columns
-    ]
-    if not available_fields:
-        raise ValueError(
-            "patient or apachePatientResult must contain a supported mortality "
-            "or discharge-status label field"
-        )
+    total_stays = 0
+    eligible_stays = 0
+    exclusion_counts = {
+        "missing_id": 0,
+        "unrecognised_label": 0,
+        "short_stay": 0,
+        "conflicting_stay": 0,
+    }
+    class_counts = {
+        "Alive": 0,
+        "Expired": 0,
+    }
 
-    candidate_stays: set[Any] = set()
-    for table_name in {table_name for table_name, _ in available_fields}:
-        frame = tables[table_name]
-        if "patientunitstayid" not in frame.columns:
-            raise ValueError(
-                f"eICU demo table '{table_name}' is missing required column: "
-                "patientunitstayid"
-            )
-        candidate_stays.update(frame["patientunitstayid"].dropna().tolist())
+    nan_count = patient_df["patientunitstayid"].isna().sum()
+    if nan_count > 0:
+        exclusion_counts["missing_id"] += nan_count
 
-    selected: dict[Any, int] = {}
-    conflicting_stays: set[Any] = set()
-    for table_name, field in available_fields:
-        labels, conflicts = _labels_by_stay(tables[table_name], table_name, field)
-        unresolved_conflicts = conflicts.difference(selected)
-        conflicting_stays.update(unresolved_conflicts)
-        for stay_id, label in labels.items():
-            if stay_id not in selected and stay_id not in conflicting_stays:
-                selected[stay_id] = label
+    eligible_records = []
+    valid_groups = patient_df.dropna(subset=["patientunitstayid"])
+    total_stays = len(valid_groups["patientunitstayid"].unique()) + nan_count
 
-    records = [
-        {"patientunitstayid": stay_id, "mortality": int(label)}
-        for stay_id, label in selected.items()
-    ]
+    for stay_id, group in valid_groups.groupby("patientunitstayid", sort=False):
+        unique_pids = {val for val in group["uniquepid"].dropna() if str(val).strip()}
+        unique_hids = {val for val in group["hospitalid"].dropna() if str(val).strip()}
+
+        if not unique_pids or not unique_hids:
+            exclusion_counts["missing_id"] += 1
+            continue
+
+        if len(unique_pids) > 1 or len(unique_hids) > 1:
+            exclusion_counts["conflicting_stay"] += 1
+            continue
+
+        resolved_labels = set()
+        for val in group["hospitaldischargestatus"]:
+            if pd.isna(val):
+                continue
+            s_val = str(val).strip().casefold()
+            if s_val == "alive":
+                resolved_labels.add(0)
+            elif s_val == "expired":
+                resolved_labels.add(1)
+            else:
+                resolved_labels.add(-1)
+
+        if not resolved_labels:
+            exclusion_counts["unrecognised_label"] += 1
+            continue
+
+        if len(resolved_labels) > 1:
+            exclusion_counts["conflicting_stay"] += 1
+            continue
+
+        label = resolved_labels.pop()
+        if label == -1:
+            exclusion_counts["unrecognised_label"] += 1
+            continue
+
+        offsets = []
+        invalid_offset = False
+        for val in group["unitdischargeoffset"]:
+            if pd.isna(val):
+                invalid_offset = True
+                continue
+            try:
+                f_val = float(val)
+                if math.isnan(f_val) or not math.isfinite(f_val):
+                    invalid_offset = True
+                else:
+                    offsets.append(f_val)
+            except (ValueError, TypeError):
+                invalid_offset = True
+
+        if invalid_offset or not offsets:
+            exclusion_counts["short_stay"] += 1
+            continue
+
+        if len(set(offsets)) > 1:
+            exclusion_counts["conflicting_stay"] += 1
+            continue
+
+        offset = offsets[0]
+        if offset < 1440.0:
+            exclusion_counts["short_stay"] += 1
+            continue
+
+        eligible_records.append({
+            "patientunitstayid": stay_id,
+            "mortality": label,
+        })
+        eligible_stays += 1
+        if label == 0:
+            class_counts["Alive"] += 1
+        else:
+            class_counts["Expired"] += 1
+
     outcomes = pd.DataFrame.from_records(
-        records, columns=["patientunitstayid", "mortality"]
+        eligible_records, columns=["patientunitstayid", "mortality"]
     )
     if not outcomes.empty:
         outcomes = outcomes.sort_values("patientunitstayid", kind="stable").reset_index(
@@ -1173,13 +1182,23 @@ def extract_outcomes(tables: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
         )
         outcomes["mortality"] = outcomes["mortality"].astype(int)
 
+    summary = CohortSummary(
+        total_stays=int(total_stays),
+        eligible_stays=int(eligible_stays),
+        exclusion_counts={k: int(v) for k, v in exclusion_counts.items()},
+        class_counts={k: int(v) for k, v in class_counts.items()},
+    )
+    validate_cohort_summary(summary)
+    outcomes.attrs["cohort_summary"] = summary
+
     outcomes.attrs["outcome_stats"] = {
-        "candidate_stays": len(candidate_stays),
-        "labelled_stays": len(outcomes),
-        "unavailable_labels": len(candidate_stays - set(selected) - conflicting_stays),
-        "conflicting_labels": len(conflicting_stays),
+        "candidate_stays": int(total_stays),
+        "labelled_stays": int(eligible_stays),
+        "unavailable_labels": int(exclusion_counts["unrecognised_label"] + exclusion_counts["missing_id"] + exclusion_counts["short_stay"]),
+        "conflicting_labels": int(exclusion_counts["conflicting_stay"]),
     }
     return outcomes
+
 
 
 def event_stream_from_dict(record: Mapping[str, Any]) -> EventStream:

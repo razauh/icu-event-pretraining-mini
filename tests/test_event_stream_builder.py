@@ -14,9 +14,12 @@ def _tables() -> dict[str, pd.DataFrame]:
         "patient": pd.DataFrame(
             {
                 "patientunitstayid": [101, 102, 103],
+                "uniquepid": ["P101", "P102", "P103"],
+                "hospitalid": [1, 1, 1],
                 "age": [65, 50, 40],
                 "gender": ["Female", "Male", "Female"],
                 "hospitaldischargestatus": ["Alive", "Expired", None],
+                "unitdischargeoffset": [1440, 1440, 1440],
             }
         ),
         "diagnosis": pd.DataFrame(
@@ -107,7 +110,10 @@ def test_equal_negative_and_missing_offsets_do_not_create_artificial_gaps() -> N
         "patient": pd.DataFrame(
             {
                 "patientunitstayid": [101],
+                "uniquepid": ["P101"],
+                "hospitalid": [1],
                 "hospitaldischargestatus": ["Alive"],
+                "unitdischargeoffset": [1440],
             }
         ),
         "diagnosis": pd.DataFrame(
@@ -132,7 +138,10 @@ def test_all_missing_offsets_use_token_order_without_time_gaps() -> None:
         "patient": pd.DataFrame(
             {
                 "patientunitstayid": [101],
+                "uniquepid": ["P101"],
+                "hospitalid": [1],
                 "hospitaldischargestatus": ["Alive"],
+                "unitdischargeoffset": [1440],
             }
         ),
         "diagnosis": pd.DataFrame(
@@ -157,7 +166,10 @@ def test_gap_bucket_boundaries_are_stable() -> None:
         "patient": pd.DataFrame(
             {
                 "patientunitstayid": [101],
+                "uniquepid": ["P101"],
+                "hospitalid": [1],
                 "hospitaldischargestatus": ["Alive"],
+                "unitdischargeoffset": [1440],
             }
         ),
         "diagnosis": pd.DataFrame(
@@ -195,7 +207,10 @@ def test_minimum_length_filter_and_empty_static_context_are_supported() -> None:
         "patient": pd.DataFrame(
             {
                 "patientunitstayid": [101, 102],
+                "uniquepid": ["P101", "P102"],
+                "hospitalid": [1, 1],
                 "hospitaldischargestatus": ["Alive", "Expired"],
+                "unitdischargeoffset": [1440, 1440],
             }
         ),
         "diagnosis": pd.DataFrame(
@@ -223,7 +238,10 @@ def test_builder_does_not_truncate_long_sequences() -> None:
         "patient": pd.DataFrame(
             {
                 "patientunitstayid": [101],
+                "uniquepid": ["P101"],
+                "hospitalid": [1],
                 "hospitaldischargestatus": ["Alive"],
+                "unitdischargeoffset": [1440],
             }
         ),
         "diagnosis": pd.DataFrame(

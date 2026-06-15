@@ -17,7 +17,7 @@ Last updated: 2026-06-07
 | TDD-01 - Dataset-Grounded Configuration Contracts | Implemented |
 | TDD-02 - Cohort, Outcome, Event, and Artifact Contracts | Implemented |
 | TDD-03 - Versioned eICU Demo Table Discovery and Loading | Implemented |
-| TDD-04 - Primary Outcome and 24-Hour Cohort Eligibility | Remaining |
+| TDD-04 - Primary Outcome and 24-Hour Cohort Eligibility | Implemented |
 | TDD-05 - Patient-Grouped Train/Validation/Test Splits | Remaining |
 | TDD-06 - Static and Categorical Event Extraction | Remaining |
 | TDD-07 - Training-Only Numeric Fitting and Vital Aggregation | Remaining |
@@ -263,7 +263,7 @@ assuming uncompressed files or a flat raw directory.
 
 ## TDD-04 - Primary Outcome and 24-Hour Cohort Eligibility
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Produce the fixed hospital-mortality label and eligible 24-hour cohort.
 
