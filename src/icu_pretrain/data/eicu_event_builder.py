@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 import json
 import math
 from pathlib import Path
@@ -11,7 +12,15 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from icu_pretrain.constants import EVENT_FAMILIES, EVENT_REPRESENTATIONS
+from icu_pretrain.constants import (
+    ARTIFACT_HASH_KEYS,
+    CONTRACT_SCHEMA_VERSION,
+    EVENT_FAMILIES,
+    EVENT_REPRESENTATIONS,
+    MANIFEST_STATUSES,
+    RUN_STATUSES,
+    SPLIT_NAMES,
+)
 
 
 PatientStayId = int | str
@@ -41,6 +50,15 @@ _UNKNOWN_TEXT_VALUES = frozenset(
     {"", "n/a", "na", "none", "not available", "not recorded", "other", "unknown"}
 )
 _TOKEN_SEPARATOR_PATTERN = re.compile(r"[^A-Z0-9]+")
+_MODEL_TOKEN_PROHIBITED_FRAGMENTS = (
+    "PATIENTUNITSTAYID",
+    "PATIENTHEALTHSYSTEMSTAYID",
+    "UNIQUEPID",
+    "HOSPITALID",
+    "HOSPITAL_ID",
+    "WARDID",
+    "WARD_ID",
+)
 
 
 @dataclass(slots=True)
@@ -52,6 +70,7 @@ class EventStream:
     representation: str
     event_times: list[EventTime] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    split_name: str = "train"
 
 
 @dataclass(slots=True)
@@ -61,6 +80,120 @@ class OutcomeRecord:
     patientunitstayid: PatientStayId
     mortality: int | None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ICUStayRecord:
+    """Identifiers and outcome metadata retained outside model inputs."""
+
+    patientunitstayid: PatientStayId
+    uniquepid: str
+    hospitalid: int | str
+    mortality: int
+
+
+@dataclass(slots=True)
+class EligibilityDecision:
+    """Eligibility result for one ICU stay."""
+
+    patientunitstayid: PatientStayId
+    eligible: bool
+    exclusion_reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class SplitRecord:
+    """Local patient-grouped split metadata."""
+
+    patientunitstayid: PatientStayId
+    uniquepid: str
+    hospitalid: int | str
+    split_name: str
+
+
+@dataclass(slots=True)
+class FittedPreprocessing:
+    """Training-only fitted preprocessing metadata."""
+
+    artifact_hash: str
+    fit_split: str = "train"
+    numeric_bins: dict[str, list[float]] = field(default_factory=dict)
+    category_maps: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class CohortSummary:
+    """Aggregate eligibility and outcome counts."""
+
+    total_stays: int
+    eligible_stays: int
+    exclusion_counts: dict[str, int]
+    class_counts: dict[str, int]
+
+
+@dataclass(slots=True)
+class StageManifest:
+    """Restartable preprocessing-stage manifest."""
+
+    stage_name: str
+    status: str
+    config_hash: str
+    input_hashes: dict[str, str]
+    upstream_hashes: dict[str, str]
+    shard_count: int
+    completed_shards: list[int]
+    aggregate_counts: dict[str, int]
+    skipped_counts: dict[str, int]
+    started_at: str
+    updated_at: str
+    completed_at: str | None = None
+    failure: dict[str, str] | None = None
+    schema_version: int = CONTRACT_SCHEMA_VERSION
+
+
+@dataclass(slots=True)
+class RunState:
+    """Atomic summary for one local run."""
+
+    run_id: str
+    status: str
+    updated_at: str
+    artifact_hashes: dict[str, str]
+    last_checkpoint: str | None = None
+
+
+@dataclass(slots=True)
+class CheckpointContract:
+    """Metadata required to resume training without restarting an epoch."""
+
+    run_id: str
+    model_state: dict[str, Any]
+    prediction_head_state: dict[str, Any]
+    optimizer_state: dict[str, Any]
+    scheduler_state: dict[str, Any]
+    gradient_state: dict[str, Any]
+    accumulation_step: int
+    epoch: int
+    next_batch_cursor: int
+    global_batch: int
+    optimizer_step: int
+    best_metric: float | None
+    best_epoch: int | None
+    early_stopping_state: dict[str, Any]
+    threshold_state: dict[str, Any]
+    rng_state: dict[str, Any]
+    sampler_state: dict[str, Any]
+    artifact_hashes: dict[str, str]
+    training_history: dict[str, Any]
+    creation_reason: str
+    schema_version: int = CONTRACT_SCHEMA_VERSION
+
+
+@dataclass(slots=True)
+class PublicAggregateSummary:
+    """Validated public-safe aggregate result payload."""
+
+    values: dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -88,6 +221,48 @@ def _validate_patient_id(patientunitstayid: Any) -> None:
     raise ValueError("patientunitstayid must be a non-empty string or positive integer")
 
 
+def _validate_group_id(value: Any, name: str) -> None:
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f"{name} must be a non-empty string or positive integer")
+    if isinstance(value, int) and value > 0:
+        return
+    if isinstance(value, str) and value.strip():
+        return
+    raise ValueError(f"{name} must be a non-empty string or positive integer")
+
+
+def _validate_nonempty_text(value: Any, name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
+
+
+def _validate_hashes(hashes: Any, name: str, *, exact_artifacts: bool = False) -> None:
+    if not isinstance(hashes, dict):
+        raise ValueError(f"{name} must be a mapping")
+    if exact_artifacts and set(hashes) != set(ARTIFACT_HASH_KEYS):
+        raise ValueError(f"{name} must contain every artifact compatibility hash")
+    for key, value in hashes.items():
+        _validate_nonempty_text(key, f"{name} key")
+        _validate_nonempty_text(value, f"{name}.{key}")
+
+
+def _validate_count_mapping(counts: Any, name: str) -> None:
+    if not isinstance(counts, dict):
+        raise ValueError(f"{name} must be a mapping")
+    for key, value in counts.items():
+        _validate_nonempty_text(key, f"{name} key")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{name}.{key} must be a non-negative integer")
+
+
+def _validate_timestamp(value: Any, name: str) -> None:
+    _validate_nonempty_text(value, name)
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{name} must be an ISO-8601 timestamp") from error
+
+
 def _validate_event_token(token: Any, index: int) -> None:
     if not isinstance(token, str):
         raise ValueError(f"events[{index}] must be a string")
@@ -106,8 +281,8 @@ def validate_event_stream(
         raise ValueError("event stream must be an EventStream")
     _validate_patient_id(stream.patientunitstayid)
 
-    if not isinstance(min_events_per_stay, int) or min_events_per_stay < 1:
-        raise ValueError("min_events_per_stay must be a positive integer")
+    if not isinstance(min_events_per_stay, int) or min_events_per_stay < 0:
+        raise ValueError("min_events_per_stay must be a non-negative integer")
     if not isinstance(stream.events, list) or len(stream.events) < min_events_per_stay:
         raise ValueError(
             f"events must contain at least min_events_per_stay={min_events_per_stay} entries"
@@ -118,6 +293,9 @@ def validate_event_stream(
     if stream.representation not in EVENT_REPRESENTATIONS:
         choices = ", ".join(EVENT_REPRESENTATIONS)
         raise ValueError(f"representation must be one of: {choices}")
+    if stream.split_name not in SPLIT_NAMES:
+        choices = ", ".join(SPLIT_NAMES)
+        raise ValueError(f"split_name must be one of: {choices}")
     if not isinstance(stream.metadata, dict):
         raise ValueError("metadata must be a mapping")
 
@@ -133,6 +311,8 @@ def validate_event_stream(
                 continue
             if isinstance(event_time, bool) or not isinstance(event_time, (int, float)):
                 raise ValueError(f"event_times[{index}] must be numeric or null")
+            if not math.isfinite(event_time):
+                raise ValueError(f"event_times[{index}] must be finite")
             known_times.append(event_time)
         if any(current < previous for previous, current in zip(known_times, known_times[1:])):
             raise ValueError("event_times must be sorted in nondecreasing order")
@@ -150,6 +330,374 @@ def validate_outcome_record(record: OutcomeRecord) -> OutcomeRecord:
     if not isinstance(record.metadata, dict):
         raise ValueError("metadata must be a mapping")
     return record
+
+
+def validate_outcomes_for_eligible_stays(
+    records: Iterable[OutcomeRecord], eligible_stay_ids: Iterable[PatientStayId]
+) -> list[OutcomeRecord]:
+    """Require exactly one binary outcome for every eligible ICU stay."""
+    eligible_ids = list(eligible_stay_ids)
+    for stay_id in eligible_ids:
+        _validate_patient_id(stay_id)
+    if len(set(eligible_ids)) != len(eligible_ids):
+        raise ValueError("eligible_stay_ids must not contain duplicates")
+
+    validated = [validate_outcome_record(record) for record in records]
+    outcome_ids = [record.patientunitstayid for record in validated]
+    if len(set(outcome_ids)) != len(outcome_ids):
+        raise ValueError("outcomes must contain exactly one label per eligible stay")
+    if set(outcome_ids) != set(eligible_ids):
+        raise ValueError("outcomes must contain exactly one label per eligible stay")
+    return validated
+
+
+def validate_icu_stay_record(record: ICUStayRecord) -> ICUStayRecord:
+    if not isinstance(record, ICUStayRecord):
+        raise ValueError("ICU stay record must be an ICUStayRecord")
+    _validate_patient_id(record.patientunitstayid)
+    _validate_group_id(record.uniquepid, "uniquepid")
+    _validate_group_id(record.hospitalid, "hospitalid")
+    if isinstance(record.mortality, bool) or record.mortality not in {0, 1}:
+        raise ValueError("mortality must be an integer binary label: 0 or 1")
+    return record
+
+
+def validate_eligibility_decision(
+    decision: EligibilityDecision,
+) -> EligibilityDecision:
+    if not isinstance(decision, EligibilityDecision):
+        raise ValueError("eligibility decision must be an EligibilityDecision")
+    _validate_patient_id(decision.patientunitstayid)
+    if not isinstance(decision.eligible, bool):
+        raise ValueError("eligible must be boolean")
+    if not isinstance(decision.exclusion_reasons, list) or any(
+        not isinstance(reason, str) or not reason.strip()
+        for reason in decision.exclusion_reasons
+    ):
+        raise ValueError("exclusion_reasons must contain non-empty strings")
+    if decision.eligible and decision.exclusion_reasons:
+        raise ValueError("eligible decisions cannot contain exclusion_reasons")
+    if not decision.eligible and not decision.exclusion_reasons:
+        raise ValueError("ineligible decisions require exclusion_reasons")
+    return decision
+
+
+def validate_split_record(record: SplitRecord) -> SplitRecord:
+    if not isinstance(record, SplitRecord):
+        raise ValueError("split record must be a SplitRecord")
+    _validate_patient_id(record.patientunitstayid)
+    _validate_group_id(record.uniquepid, "uniquepid")
+    _validate_group_id(record.hospitalid, "hospitalid")
+    if record.split_name not in SPLIT_NAMES:
+        raise ValueError(f"split_name must be one of: {', '.join(SPLIT_NAMES)}")
+    return record
+
+
+def validate_fitted_preprocessing(
+    fitted: FittedPreprocessing,
+) -> FittedPreprocessing:
+    if not isinstance(fitted, FittedPreprocessing):
+        raise ValueError("fitted preprocessing must be FittedPreprocessing")
+    _validate_nonempty_text(fitted.artifact_hash, "artifact_hash")
+    if fitted.fit_split != "train":
+        raise ValueError("fit_split must be train")
+    if not isinstance(fitted.numeric_bins, dict) or not isinstance(
+        fitted.category_maps, dict
+    ):
+        raise ValueError("fitted preprocessing metadata must use mappings")
+    for name, boundaries in fitted.numeric_bins.items():
+        _validate_nonempty_text(name, "numeric_bins key")
+        if not isinstance(boundaries, list) or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            for value in boundaries
+        ):
+            raise ValueError(f"numeric_bins.{name} must contain finite numbers")
+    for name, category_map in fitted.category_maps.items():
+        _validate_nonempty_text(name, "category_maps key")
+        if not isinstance(category_map, dict) or any(
+            not isinstance(source, str)
+            or not isinstance(target, str)
+            or not source.strip()
+            or not target.strip()
+            for source, target in category_map.items()
+        ):
+            raise ValueError(
+                f"category_maps.{name} must map non-empty strings to non-empty strings"
+            )
+    return fitted
+
+
+def validate_cohort_summary(summary: CohortSummary) -> CohortSummary:
+    if not isinstance(summary, CohortSummary):
+        raise ValueError("cohort summary must be a CohortSummary")
+    for name, value in (
+        ("total_stays", summary.total_stays),
+        ("eligible_stays", summary.eligible_stays),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+    if summary.eligible_stays > summary.total_stays:
+        raise ValueError("eligible_stays cannot exceed total_stays")
+    _validate_count_mapping(summary.exclusion_counts, "exclusion_counts")
+    _validate_count_mapping(summary.class_counts, "class_counts")
+    if set(summary.class_counts) != {"Alive", "Expired"}:
+        raise ValueError("class_counts must contain Alive and Expired")
+    if sum(summary.class_counts.values()) != summary.eligible_stays:
+        raise ValueError("class_counts must sum to eligible_stays")
+    return summary
+
+
+def validate_stage_manifest(manifest: StageManifest) -> StageManifest:
+    if not isinstance(manifest, StageManifest):
+        raise ValueError("stage manifest must be a StageManifest")
+    _validate_nonempty_text(manifest.stage_name, "stage_name")
+    if manifest.schema_version != CONTRACT_SCHEMA_VERSION:
+        raise ValueError("schema_version is incompatible")
+    if manifest.status not in MANIFEST_STATUSES:
+        raise ValueError(f"status must be one of: {', '.join(MANIFEST_STATUSES)}")
+    _validate_nonempty_text(manifest.config_hash, "config_hash")
+    _validate_hashes(manifest.input_hashes, "input_hashes")
+    _validate_hashes(manifest.upstream_hashes, "upstream_hashes")
+    if (
+        isinstance(manifest.shard_count, bool)
+        or not isinstance(manifest.shard_count, int)
+        or manifest.shard_count < 0
+    ):
+        raise ValueError("shard_count must be a non-negative integer")
+    if not isinstance(manifest.completed_shards, list) or any(
+        isinstance(shard, bool)
+        or not isinstance(shard, int)
+        or shard < 0
+        or shard >= manifest.shard_count
+        for shard in manifest.completed_shards
+    ):
+        raise ValueError("completed_shards contains an invalid shard ID")
+    if len(set(manifest.completed_shards)) != len(manifest.completed_shards):
+        raise ValueError("completed_shards must not contain duplicates")
+    _validate_count_mapping(manifest.aggregate_counts, "aggregate_counts")
+    _validate_count_mapping(manifest.skipped_counts, "skipped_counts")
+    for name, value in (
+        ("started_at", manifest.started_at),
+        ("updated_at", manifest.updated_at),
+    ):
+        _validate_timestamp(value, name)
+    if manifest.status == "complete":
+        _validate_timestamp(manifest.completed_at, "completed_at")
+        if len(manifest.completed_shards) != manifest.shard_count:
+            raise ValueError("complete manifest must contain every completed shard")
+    if manifest.status == "failed":
+        if not isinstance(manifest.failure, dict) or set(manifest.failure) != {
+            "type",
+            "message",
+        }:
+            raise ValueError("failed manifest requires failure type and message")
+        _validate_nonempty_text(manifest.failure["type"], "failure.type")
+        _validate_nonempty_text(manifest.failure["message"], "failure.message")
+        validate_public_aggregate(manifest.failure)
+    elif manifest.failure is not None:
+        raise ValueError("failure metadata is only valid for failed manifests")
+    return manifest
+
+
+def validate_run_state(state: RunState) -> RunState:
+    if not isinstance(state, RunState):
+        raise ValueError("run state must be a RunState")
+    _validate_nonempty_text(state.run_id, "run_id")
+    if state.status not in RUN_STATUSES:
+        raise ValueError(f"status must be one of: {', '.join(RUN_STATUSES)}")
+    _validate_timestamp(state.updated_at, "updated_at")
+    _validate_hashes(state.artifact_hashes, "artifact_hashes", exact_artifacts=True)
+    if state.last_checkpoint is not None:
+        _validate_nonempty_text(state.last_checkpoint, "last_checkpoint")
+    return state
+
+
+def validate_checkpoint_contract(
+    checkpoint: CheckpointContract,
+    *, expected_artifact_hashes: Mapping[str, str] | None = None,
+) -> CheckpointContract:
+    if not isinstance(checkpoint, CheckpointContract):
+        raise ValueError("checkpoint must be a CheckpointContract")
+    if checkpoint.schema_version != CONTRACT_SCHEMA_VERSION:
+        raise ValueError("schema_version is incompatible")
+    _validate_nonempty_text(checkpoint.run_id, "run_id")
+    for name in (
+        "model_state",
+        "prediction_head_state",
+        "optimizer_state",
+        "scheduler_state",
+        "gradient_state",
+        "early_stopping_state",
+        "threshold_state",
+        "rng_state",
+        "sampler_state",
+        "training_history",
+    ):
+        if not isinstance(getattr(checkpoint, name), dict):
+            raise ValueError(f"{name} must be a mapping")
+    for name in (
+        "accumulation_step",
+        "epoch",
+        "next_batch_cursor",
+        "global_batch",
+        "optimizer_step",
+    ):
+        value = getattr(checkpoint, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+    if checkpoint.best_metric is not None and (
+        isinstance(checkpoint.best_metric, bool)
+        or not isinstance(checkpoint.best_metric, (int, float))
+        or not math.isfinite(checkpoint.best_metric)
+    ):
+        raise ValueError("best_metric must be finite or null")
+    if checkpoint.best_epoch is not None and (
+        isinstance(checkpoint.best_epoch, bool)
+        or not isinstance(checkpoint.best_epoch, int)
+        or checkpoint.best_epoch < 0
+    ):
+        raise ValueError("best_epoch must be a non-negative integer or null")
+    _validate_hashes(
+        checkpoint.artifact_hashes, "artifact_hashes", exact_artifacts=True
+    )
+    if not {"python", "numpy", "torch"}.issubset(checkpoint.rng_state):
+        raise ValueError("rng_state must contain Python, NumPy, and PyTorch state")
+    if not {"permutation", "generator_state", "cursor"}.issubset(
+        checkpoint.sampler_state
+    ):
+        raise ValueError(
+            "sampler_state must contain permutation, generator_state, and cursor"
+        )
+    _validate_nonempty_text(checkpoint.creation_reason, "creation_reason")
+    if expected_artifact_hashes is not None and dict(expected_artifact_hashes) != (
+        checkpoint.artifact_hashes
+    ):
+        raise ValueError("checkpoint artifact hashes are incompatible")
+    return checkpoint
+
+
+_PUBLIC_PROHIBITED_KEYS = frozenset(
+    {
+        "patientunitstayid",
+        "patienthealthsystemstayid",
+        "uniquepid",
+        "hospitalid",
+        "wardid",
+        "events",
+        "event_times",
+        "event_stream",
+        "event_streams",
+        "tokens",
+        "patient_records",
+        "stay_records",
+    }
+)
+
+
+def validate_public_aggregate(value: Any, *, path: str = "summary") -> Any:
+    """Reject patient-level fields from recursively nested public output."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"{path} keys must be strings")
+            if key.casefold() in _PUBLIC_PROHIBITED_KEYS:
+                raise ValueError(f"{path}.{key} is patient-level and not public-safe")
+            validate_public_aggregate(item, path=f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            validate_public_aggregate(item, path=f"{path}[{index}]")
+    elif isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{path} must contain finite values")
+    return value
+
+
+def validate_public_summary(summary: PublicAggregateSummary) -> PublicAggregateSummary:
+    if not isinstance(summary, PublicAggregateSummary):
+        raise ValueError("public summary must be a PublicAggregateSummary")
+    if not isinstance(summary.values, dict):
+        raise ValueError("public summary values must be a mapping")
+    validate_public_aggregate(summary.values)
+    return summary
+
+
+def serialize_model_input(stream: EventStream) -> dict[str, Any]:
+    """Serialize model features without local patient or grouping identifiers."""
+    validate_event_stream(stream, min_events_per_stay=0)
+    validate_public_aggregate(stream.metadata, path="metadata")
+    for index, token in enumerate(stream.events):
+        components = token.upper().split("::")
+        if any(fragment in components for fragment in _MODEL_TOKEN_PROHIBITED_FRAGMENTS):
+            raise ValueError(
+                f"events[{index}] contains a patient or grouping identifier"
+            )
+    return {
+        "events": list(stream.events),
+        "event_times": None if stream.event_times is None else list(stream.event_times),
+        "representation": stream.representation,
+        "split_name": stream.split_name,
+        "metadata": dict(stream.metadata),
+    }
+
+
+def write_split_metadata(
+    path: str | Path,
+    records: Iterable[SplitRecord],
+    *,
+    processed_root: str | Path,
+) -> None:
+    """Write local split metadata only below the configured processed root."""
+    output_path = Path(path).resolve()
+    root = Path(processed_root).resolve()
+    try:
+        output_path.relative_to(root)
+    except ValueError as error:
+        raise ValueError("split metadata must be written under processed_root") from error
+    serialized = []
+    for record in records:
+        validate_split_record(record)
+        serialized.append(asdict(record))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_suffix(f"{output_path.suffix}.tmp")
+    temporary_path.write_text(
+        json.dumps(serialized, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(output_path)
+
+
+def stage_manifest_from_dict(record: Mapping[str, Any]) -> StageManifest:
+    """Create and validate a stage manifest from decoded JSON."""
+    if not isinstance(record, Mapping):
+        raise ValueError("serialized stage manifest must be a mapping")
+    try:
+        manifest = StageManifest(**record)
+    except TypeError as error:
+        raise ValueError(f"invalid stage manifest fields: {error}") from error
+    return validate_stage_manifest(manifest)
+
+
+def write_stage_manifest_json(path: str | Path, manifest: StageManifest) -> None:
+    """Atomically write a validated stage manifest."""
+    validate_stage_manifest(manifest)
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_suffix(f"{output_path.suffix}.tmp")
+    temporary_path.write_text(
+        json.dumps(asdict(manifest), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(output_path)
+
+
+def read_stage_manifest_json(path: str | Path) -> StageManifest:
+    """Read and validate a stage manifest JSON file."""
+    try:
+        record = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid stage manifest JSON: {error}") from error
+    return stage_manifest_from_dict(record)
 
 
 def validate_event_stats(stats: EventStats) -> EventStats:
@@ -638,7 +1186,7 @@ def event_stream_from_dict(record: Mapping[str, Any]) -> EventStream:
     """Create and validate an event stream from a serialized mapping."""
     if not isinstance(record, Mapping):
         raise ValueError("serialized event stream must be a mapping")
-    required = {"patientunitstayid", "events", "representation"}
+    required = {"patientunitstayid", "events", "representation", "split_name"}
     missing = sorted(required.difference(record))
     if missing:
         raise ValueError(f"serialized event stream is missing: {', '.join(missing)}")
@@ -649,6 +1197,7 @@ def event_stream_from_dict(record: Mapping[str, Any]) -> EventStream:
         representation=record["representation"],
         event_times=record.get("event_times"),
         metadata=record.get("metadata", {}),
+        split_name=record["split_name"],
     )
     return validate_event_stream(stream)
 

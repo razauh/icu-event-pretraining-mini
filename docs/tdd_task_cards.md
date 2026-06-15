@@ -15,8 +15,8 @@ Last updated: 2026-06-07
 |---|---|
 | TDD-00 - Test Harness and Package Safety | Implemented |
 | TDD-01 - Dataset-Grounded Configuration Contracts | Implemented |
-| TDD-02 - Cohort, Outcome, Event, and Artifact Contracts | Remaining |
-| TDD-03 - Versioned eICU Demo Table Discovery and Loading | Remaining |
+| TDD-02 - Cohort, Outcome, Event, and Artifact Contracts | Implemented |
+| TDD-03 - Versioned eICU Demo Table Discovery and Loading | Implemented |
 | TDD-04 - Primary Outcome and 24-Hour Cohort Eligibility | Remaining |
 | TDD-05 - Patient-Grouped Train/Validation/Test Splits | Remaining |
 | TDD-06 - Static and Categorical Event Extraction | Remaining |
@@ -39,7 +39,7 @@ Last updated: 2026-06-07
 | TDD-23 - Optional Memorisation Diagnostic | Remaining |
 | TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
 
-Progress: **2 implemented, 23 remaining.**
+Progress: **3 implemented, 22 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
@@ -179,7 +179,7 @@ configuration layer.
 
 ## TDD-02 - Cohort, Outcome, Event, and Artifact Contracts
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Define stable contracts for ICU stay records, eligibility decisions,
 splits, fitted preprocessing, event streams, stage manifests, run state,
@@ -223,7 +223,7 @@ leakage-aware contracts.
 
 ## TDD-03 - Versioned eICU Demo Table Discovery and Loading
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Discover and load the exact required `.csv.gz` tables safely.
 

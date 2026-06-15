@@ -22,7 +22,8 @@ htmlcov/
 
 # Virtual environments and local dependency folders
 .venv/
-.conda/
+/.conda/
+/.conda-env/
 venv/
 env/
 ENV/
@@ -42,12 +43,14 @@ pip-wheel-metadata/
 
 # ICU data and derived artifacts must not be committed
 data/
+.data/
 
 # Model checkpoints, tensor dumps, and large experiment artifacts
 checkpoints/
 artifacts/
 outputs/
 runs/
+results/runs/
 lightning_logs/
 wandb/
 mlruns/
@@ -72,6 +75,10 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
 results/tuning/*.db
 results/tuning/*.sqlite*
 
