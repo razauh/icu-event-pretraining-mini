@@ -804,7 +804,7 @@ ablation runs are available.
 
 ## TDD-19 - Run Logging, Recovery State, and Aggregate Tracking
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Record complete local execution progress, recovery pointers, aggregate
 metadata, and metrics without remote tracking or patient-level content.

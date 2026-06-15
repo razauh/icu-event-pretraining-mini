@@ -68,47 +68,7 @@ def load_artifact_hashes(processed_dir: Path) -> dict[str, str]:
     return hashes
 
 
-def write_run_state(run_dir: Path, state: RunState) -> None:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    output_path = run_dir / "state.json"
-    temporary_path = output_path.with_suffix(".tmp")
-    temporary_path.write_text(
-        json.dumps(
-            {
-                "run_id": state.run_id,
-                "status": state.status,
-                "updated_at": state.updated_at,
-                "artifact_hashes": state.artifact_hashes,
-                "last_checkpoint": state.last_checkpoint,
-            },
-            indent=2,
-            sort_keys=True,
-        ) + "\n",
-        encoding="utf-8",
-    )
-    temporary_path.replace(output_path)
-
-
-def log_event(run_dir: Path, event_data: dict[str, Any]) -> None:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    events_file = run_dir / "events.jsonl"
-    with open(events_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(event_data) + "\n")
-    log_file = run_dir / "run.log"
-    timestamp = event_data.get("timestamp", "")
-    msg = f"[{timestamp}] Stage: {event_data.get('stage', 'pretrain')} | Status: {event_data.get('status', '')}"
-    if "epoch" in event_data:
-        msg += f" | Epoch: {event_data['epoch']}"
-    if "batch" in event_data:
-        msg += f" | Batch: {event_data['batch']}"
-    if "loss" in event_data:
-        msg += f" | Loss: {event_data['loss']:.4f}"
-    if "val_loss" in event_data:
-        msg += f" | Val Loss: {event_data['val_loss']:.4f}"
-    if "checkpoint_path" in event_data:
-        msg += f" | Checkpoint: {event_data['checkpoint_path']}"
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(msg + "\n")
+from icu_pretrain.experiments.tracking import write_run_state, log_event
 
 
 def save_checkpoint(
