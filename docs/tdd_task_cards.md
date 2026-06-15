@@ -24,8 +24,8 @@ Last updated: 2026-06-07
 | TDD-08 - Leakage-Controlled Event Stream Assembly | Implemented |
 | TDD-09 - eICU Preparation CLI and Local Artifacts | Implemented |
 | TDD-10 - Training-Only Tokenizer and Vocabulary | Implemented |
-| TDD-11 - Encoded Dataset Creation | Remaining |
-| TDD-12 - Padding, Attention Masks, and MLM Corruption | Remaining |
+| TDD-11 - Encoded Dataset Creation | Implemented |
+| TDD-12 - Padding, Attention Masks, and MLM Corruption | Implemented |
 | TDD-13 - ICU-TinyTransformer Encoder | Remaining |
 | TDD-14 - Masked Event and Mortality Heads | Remaining |
 | TDD-15 - Masked Event Pretraining Workflow | Remaining |
