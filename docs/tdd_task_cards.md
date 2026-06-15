@@ -23,7 +23,7 @@ Last updated: 2026-06-07
 | TDD-07 - Training-Only Numeric Fitting and Vital Aggregation | Implemented |
 | TDD-08 - Leakage-Controlled Event Stream Assembly | Implemented |
 | TDD-09 - eICU Preparation CLI and Local Artifacts | Implemented |
-| TDD-10 - Training-Only Tokenizer and Vocabulary | Remaining |
+| TDD-10 - Training-Only Tokenizer and Vocabulary | Implemented |
 | TDD-11 - Encoded Dataset Creation | Remaining |
 | TDD-12 - Padding, Attention Masks, and MLM Corruption | Remaining |
 | TDD-13 - ICU-TinyTransformer Encoder | Remaining |
@@ -39,7 +39,7 @@ Last updated: 2026-06-07
 | TDD-23 - Optional Memorisation Diagnostic | Remaining |
 | TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
 
-Progress: **3 implemented, 22 remaining.**
+Progress: **11 implemented, 14 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
@@ -508,7 +508,7 @@ local data without exposing patient-level content.
 
 ## TDD-10 - Training-Only Tokenizer and Vocabulary
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Fit and persist a stable event vocabulary from training streams only.
 

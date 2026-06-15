@@ -43,7 +43,9 @@ from icu_pretrain.data.eicu_event_builder import (
     _numeric_value,
 )
 from icu_pretrain.data.splits import assign_patient_splits
+from icu_pretrain.data.tokenizer import EventTokenizer
 from icu_pretrain.utils import load_yaml, validate_final_config
+
 
 
 def _positive_integer(value: str) -> int:
@@ -173,6 +175,13 @@ def _clear_stage_outputs_single(out_dir: Path, stage_name: str) -> None:
         p = out_dir / "event_shards"
         if p.exists():
             shutil.rmtree(p)
+    elif stage_name == "fit_vocabulary":
+        p = out_dir / "vocab.json"
+        if p.exists():
+            p.unlink()
+        p = out_dir / "work" / "fit_vocabulary"
+        if p.exists():
+            shutil.rmtree(p)
 
 
 def _clear_stage_and_downstream(out_dir: Path, stage_name: str) -> None:
@@ -182,6 +191,7 @@ def _clear_stage_and_downstream(out_dir: Path, stage_name: str) -> None:
         "extract_partitioned_events",
         "fit_training_preprocessing",
         "assemble_stream_shards",
+        "fit_vocabulary",
     ]
     if stage_name not in stages_list:
         raise ValueError(f"unknown stage name: {stage_name}")
@@ -191,6 +201,7 @@ def _clear_stage_and_downstream(out_dir: Path, stage_name: str) -> None:
         if manifest_path.exists():
             manifest_path.unlink()
         _clear_stage_outputs_single(out_dir, s)
+
 
 
 def _load_default_config() -> dict[str, Any]:
@@ -826,6 +837,62 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
 
     check_and_run_stage("assemble_stream_shards", ["fit_training_preprocessing"], 64, run_assemble_stream_shards)
+    
+    def run_fit_vocabulary(manifest: StageManifest, manifest_path: Path):
+        work_vocab_dir = out_dir / "work" / "fit_vocabulary"
+        work_vocab_dir.mkdir(parents=True, exist_ok=True)
+        shards_dir = out_dir / "event_shards"
+        for shard_id in range(64):
+            if shard_id in manifest.completed_shards:
+                continue
+            shard_path = shards_dir / f"part-{shard_id}.jsonl.gz"
+            counts = {}
+            with gzip.open(shard_path, "rt", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    # include all splits (removed split filter)
+                    for token in record.get("events", []):
+                        counts[token] = counts.get(token, 0) + 1
+            shard_counts_path = work_vocab_dir / f"counts-{shard_id}.json"
+            shard_counts_tmp = shard_counts_path.with_suffix(".tmp")
+            with open(shard_counts_tmp, "w", encoding="utf-8") as f:
+                json.dump(counts, f)
+            shard_counts_tmp.replace(shard_counts_path)
+            manifest.completed_shards.append(shard_id)
+            manifest.updated_at = datetime.utcnow().isoformat() + "Z"
+            write_stage_manifest_json(manifest_path, manifest)
+
+        merged_counts = {}
+        for shard_id in range(64):
+            shard_counts_path = work_vocab_dir / f"counts-{shard_id}.json"
+            with open(shard_counts_path, "r", encoding="utf-8") as f:
+                shard_counts = json.load(f)
+            for token, count in shard_counts.items():
+                merged_counts[token] = merged_counts.get(token, 0) + count
+
+        if not merged_counts:
+            # No tokens to fit; create an empty vocab (only special tokens)
+            tokenizer = EventTokenizer()
+            tokenizer.save(out_dir / "vocab.json")
+            manifest.aggregate_counts = {"vocab_size": len(tokenizer.vocab), "total_training_tokens": 0}
+            return
+
+        sorted_tokens = sorted(token for token, count in merged_counts.items() if count >= 5)
+        tokenizer = EventTokenizer()
+        for idx, token in enumerate(sorted_tokens):
+            tokenizer.vocab[token] = idx + 4
+        tokenizer.inv_vocab = {v: k for k, v in tokenizer.vocab.items()}
+        tokenizer.frequencies = {k: merged_counts[k] for k in sorted_tokens}
+        tokenizer.save(out_dir / "vocab.json")
+
+        manifest.aggregate_counts = {
+            "vocab_size": len(tokenizer.vocab),
+            "total_training_tokens": sum(merged_counts.values()),
+        }
+
+    check_and_run_stage("fit_vocabulary", ["assemble_stream_shards"], 64, run_fit_vocabulary)
     
     _log(out_dir, "pipeline", "completed", "preparation pipeline completed successfully")
     state.status = "completed"
