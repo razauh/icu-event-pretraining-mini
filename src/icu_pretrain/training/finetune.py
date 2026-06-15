@@ -51,6 +51,17 @@ def train_finetuning_model(
     pretrain_checkpoint: Path | None = None,
     interrupt_after_batches: int | None = None,
 ) -> dict[str, Any]:
+    evaluate_on_test = config.get("finetuning", {}).get("evaluate_on_test", True)
+    experiment_id = config.get("experiment", {}).get("id", "EXP-01")
+    if evaluate_on_test and experiment_id in {"EXP-01", "EXP-02", "EXP-03"} and config.get("finetuning", {}).get("check_selection_freeze", False):
+        summary_dir = run_dir.parent.parent / "summary"
+        freeze_file = summary_dir / "selection_frozen.txt"
+        if not freeze_file.exists():
+            raise ValueError("Attempted test evaluation before selection freeze")
+        with open(freeze_file, "r", encoding="utf-8") as f:
+            frozen_id = f.read().strip()
+        if frozen_id != experiment_id:
+            raise ValueError(f"Attempted test evaluation for non-selected model {experiment_id} (selected is {frozen_id})")
     if not processed_dir.is_dir():
         raise FileNotFoundError(f"processed_dir {processed_dir} does not exist")
     vocab_path = processed_dir / "vocab.json"
@@ -561,73 +572,97 @@ def train_finetuning_model(
         val_probs = np.array(val_probs)
         best_threshold = find_best_f1_threshold(val_targets, val_probs)
 
-        test_stays = test_dataset.stays()
-        test_loader = create_dataloader(
-            dataset=test_dataset,
-            batch_size=batch_size,
-            sampler=ResumableDeterministicSampler(len(test_dataset), seed=seed, epoch=0),
-            collator=collator,
-            num_workers=0
-        )
-        test_probs = []
-        test_targets = []
-        with torch.no_grad():
-            for batch in test_loader:
-                test_input_ids = batch["input_ids"].to(device)
-                test_attention_mask = batch["attention_mask"].to(device)
-                test_y = batch["labels"].to(device)
-                _, cls_output = model(test_input_ids, padding_mask=test_attention_mask)
-                test_logits = head(cls_output)
-                probs = torch.sigmoid(test_logits)
-                test_probs.extend(probs.cpu().numpy())
-                test_targets.extend(test_y.cpu().numpy())
+        if evaluate_on_test:
+            test_stays = test_dataset.stays()
+            test_loader = create_dataloader(
+                dataset=test_dataset,
+                batch_size=batch_size,
+                sampler=ResumableDeterministicSampler(len(test_dataset), seed=seed, epoch=0),
+                collator=collator,
+                num_workers=0
+            )
+            test_probs = []
+            test_targets = []
+            with torch.no_grad():
+                for batch in test_loader:
+                    test_input_ids = batch["input_ids"].to(device)
+                    test_attention_mask = batch["attention_mask"].to(device)
+                    test_y = batch["labels"].to(device)
+                    _, cls_output = model(test_input_ids, padding_mask=test_attention_mask)
+                    test_logits = head(cls_output)
+                    probs = torch.sigmoid(test_logits)
+                    test_probs.extend(probs.cpu().numpy())
+                    test_targets.extend(test_y.cpu().numpy())
 
-        test_targets = np.array(test_targets)
-        test_probs = np.array(test_probs)
-        test_metrics = compute_binary_metrics(test_targets, test_probs, threshold=best_threshold)
+            test_targets = np.array(test_targets)
+            test_probs = np.array(test_probs)
+            test_metrics = compute_binary_metrics(test_targets, test_probs, threshold=best_threshold)
 
-        split_metadata_path = processed_dir / "split_metadata.json"
-        if not split_metadata_path.exists():
-            raise FileNotFoundError(f"split_metadata.json not found in {processed_dir}")
-        with open(split_metadata_path, "r", encoding="utf-8") as f:
-            split_metadata = json.load(f)
-        stay_to_patient = {str(r["patientunitstayid"]): str(r["uniquepid"]) for r in split_metadata}
-        test_patients = [stay_to_patient[str(stay.patientunitstayid)] for stay in test_stays]
+            split_metadata_path = processed_dir / "split_metadata.json"
+            if not split_metadata_path.exists():
+                raise FileNotFoundError(f"split_metadata.json not found in {processed_dir}")
+            with open(split_metadata_path, "r", encoding="utf-8") as f:
+                split_metadata = json.load(f)
+            stay_to_patient = {str(r["patientunitstayid"]): str(r["uniquepid"]) for r in split_metadata}
+            test_patients = [stay_to_patient[str(stay.patientunitstayid)] for stay in test_stays]
 
-        bootstrap_results = bootstrap_patient_metrics(
-            patients=test_patients,
-            y_true=test_targets,
-            y_prob=test_probs,
-            threshold=best_threshold,
-            n_replicates=1000,
-            seed=seed
-        )
+            bootstrap_results = bootstrap_patient_metrics(
+                patients=test_patients,
+                y_true=test_targets,
+                y_prob=test_probs,
+                threshold=best_threshold,
+                n_replicates=1000,
+                seed=seed
+            )
 
-        runtime = time.time() - start_time
-        param_count = model.parameter_count + sum(p.numel() for p in head.parameters())
-        num_patients = len(np.unique(test_patients))
-        num_stays = len(test_stays)
-        alive_count = int(np.sum(test_targets == 0))
-        expired_count = int(np.sum(test_targets == 1))
+            runtime = time.time() - start_time
+            param_count = model.parameter_count + sum(p.numel() for p in head.parameters())
+            num_patients = len(np.unique(test_patients))
+            num_stays = len(test_stays)
+            alive_count = int(np.sum(test_targets == 0))
+            expired_count = int(np.sum(test_targets == 1))
 
-        results = {
-            "experiment_id": config.get("experiment", {}).get("id", "EXP-01"),
-            "representation": config.get("representation", "timegap_static"),
-            "num_patients": num_patients,
-            "num_stays": num_stays,
-            "alive_count": alive_count,
-            "expired_count": expired_count,
-            "split_strategy": config.get("evaluation", {}).get("split", "patient_grouped_test"),
-            "seed": seed,
-            "auroc": test_metrics["auroc"],
-            "auroc_ci": bootstrap_results["auroc_ci"],
-            "average_precision": test_metrics["ap"],
-            "average_precision_ci": bootstrap_results["ap_ci"],
-            "f1": test_metrics["f1"],
-            "balanced_accuracy": test_metrics["balanced_accuracy"],
-            "parameter_count": param_count,
-            "runtime": runtime,
-        }
+            results = {
+                "experiment_id": experiment_id,
+                "representation": config.get("representation", "timegap_static"),
+                "num_patients": num_patients,
+                "num_stays": num_stays,
+                "alive_count": alive_count,
+                "expired_count": expired_count,
+                "split_strategy": config.get("evaluation", {}).get("split", "patient_grouped_test"),
+                "seed": seed,
+                "auroc": test_metrics["auroc"],
+                "auroc_ci": bootstrap_results["auroc_ci"],
+                "average_precision": test_metrics["ap"],
+                "average_precision_ci": bootstrap_results["ap_ci"],
+                "f1": test_metrics["f1"],
+                "balanced_accuracy": test_metrics["balanced_accuracy"],
+                "parameter_count": param_count,
+                "runtime": runtime,
+                "val_ap": best_metric,
+            }
+        else:
+            runtime = time.time() - start_time
+            param_count = model.parameter_count + sum(p.numel() for p in head.parameters())
+            results = {
+                "experiment_id": experiment_id,
+                "representation": config.get("representation", "timegap_static"),
+                "num_patients": 0,
+                "num_stays": 0,
+                "alive_count": 0,
+                "expired_count": 0,
+                "split_strategy": config.get("evaluation", {}).get("split", "patient_grouped_test"),
+                "seed": seed,
+                "auroc": 0.0,
+                "auroc_ci": [0.0, 0.0],
+                "average_precision": 0.0,
+                "average_precision_ci": [0.0, 0.0],
+                "f1": 0.0,
+                "balanced_accuracy": 0.0,
+                "parameter_count": param_count,
+                "runtime": runtime,
+                "val_ap": best_metric,
+            }
 
         results_path = run_dir / "results.json"
         with open(results_path, "w", encoding="utf-8") as f:

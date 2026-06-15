@@ -50,7 +50,13 @@ checkpoints/
 artifacts/
 outputs/
 runs/
-results/runs/
+results/*
+!results/README.md
+!results/figures/
+!results/figures/.gitkeep
+!results/summary/
+!results/summary/experiment_comparison.csv
+!results/summary/final_results.csv
 lightning_logs/
 wandb/
 mlruns/
@@ -79,8 +85,6 @@ temp/
 *.db-shm
 *.sqlite-wal
 *.sqlite-shm
-results/tuning/*.db
-results/tuning/*.sqlite*
 
 # Notebook and editor state
 .ipynb_checkpoints/
@@ -93,3 +97,5 @@ results/tuning/*.sqlite*
 # OS metadata
 .DS_Store
 Thumbs.db
+
+results/summary/best_config.json

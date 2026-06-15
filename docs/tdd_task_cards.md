@@ -32,14 +32,14 @@ Last updated: 2026-06-07
 | TDD-16 - Metrics, Threshold Selection, and Patient Bootstrap | Implemented |
 | TDD-17 - Bag-of-Events Logistic Baseline | Implemented |
 | TDD-18 - Scratch and Pretrained Fine-Tuning | Implemented |
-| TDD-19 - Run Logging, Recovery State, and Aggregate Tracking | Remaining |
-| TDD-20 - Core Experiment Registry and Runner | Remaining |
+| TDD-19 - Run Logging, Recovery State, and Aggregate Tracking | Implemented |
+| TDD-20 - Core Experiment Registry and Runner | Implemented |
 | TDD-21 - Optional Eight-Trial Optuna Search | Remaining |
 | TDD-22 - Hospital-Grouped Evaluation and FedAvg Simulation | Remaining |
 | TDD-23 - Optional Memorisation Diagnostic | Remaining |
 | TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
 
-Progress: **17 implemented, 8 remaining.**
+Progress: **19 implemented, 6 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
@@ -841,7 +841,7 @@ run, absent optional output.
 
 ## TDD-20 - Core Experiment Registry and Runner
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Orchestrate the prespecified central experiments and final selection.
 
