@@ -26,7 +26,7 @@ Last updated: 2026-06-07
 | TDD-10 - Training-Only Tokenizer and Vocabulary | Implemented |
 | TDD-11 - Encoded Dataset Creation | Implemented |
 | TDD-12 - Padding, Attention Masks, and MLM Corruption | Implemented |
-| TDD-13 - ICU-TinyTransformer Encoder | Remaining |
+| TDD-13 - ICU-TinyTransformer Encoder | Implemented |
 | TDD-14 - Masked Event and Mortality Heads | Remaining |
 | TDD-15 - Masked Event Pretraining Workflow | Remaining |
 | TDD-16 - Metrics, Threshold Selection, and Patient Bootstrap | Remaining |
@@ -39,7 +39,7 @@ Last updated: 2026-06-07
 | TDD-23 - Optional Memorisation Diagnostic | Remaining |
 | TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
 
-Progress: **11 implemented, 14 remaining.**
+Progress: **12 implemented, 13 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
