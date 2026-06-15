@@ -19,8 +19,8 @@ Last updated: 2026-06-07
 | TDD-03 - Versioned eICU Demo Table Discovery and Loading | Implemented |
 | TDD-04 - Primary Outcome and 24-Hour Cohort Eligibility | Implemented |
 | TDD-05 - Patient-Grouped Train/Validation/Test Splits | Implemented |
-| TDD-06 - Static and Categorical Event Extraction | Remaining |
-| TDD-07 - Training-Only Numeric Fitting and Vital Aggregation | Remaining |
+| TDD-06 - Static and Categorical Event Extraction | Implemented |
+| TDD-07 - Training-Only Numeric Fitting and Vital Aggregation | Implemented |
 | TDD-08 - Leakage-Controlled Event Stream Assembly | Remaining |
 | TDD-09 - eICU Preparation CLI and Local Artifacts | Remaining |
 | TDD-10 - Training-Only Tokenizer and Vocabulary | Remaining |
@@ -340,7 +340,7 @@ an immutable patient-isolated split.
 
 ## TDD-06 - Static and Categorical Event Extraction
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Extract deterministic static, diagnosis, medication, infusion, and
 treatment events within the primary time window.
@@ -384,7 +384,7 @@ deterministic without exposing prohibited fields.
 
 ## TDD-07 - Training-Only Numeric Fitting and Vital Aggregation
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Fit lab and vital discretization from training stays only and apply it
 without validation/test leakage.

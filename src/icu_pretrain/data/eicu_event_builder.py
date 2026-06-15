@@ -739,32 +739,66 @@ def normalize_token_text(value: Any, *, preserve_unknown: bool = False) -> str |
     return token or None
 
 
-def age_bin(value: Any) -> str | None:
-    """Map an eICU age value to a compact ten-year bin."""
+def age_bin(value: Any) -> str:
     if pd.isna(value) or isinstance(value, bool):
-        return None
+        return "UNKNOWN"
     normalized = str(value).strip().casefold()
-    if normalized.startswith(">") and "89" in normalized:
-        return "90_PLUS"
+    if ">" in normalized and "89" in normalized:
+        return "80_PLUS"
     try:
         age = float(normalized)
     except (TypeError, ValueError):
-        return None
+        return "UNKNOWN"
     if age < 0:
-        return None
-    if age >= 90:
-        return "90_PLUS"
-    lower = int(age // 10) * 10
-    return f"{lower}_{lower + 10}"
+        return "UNKNOWN"
+    if age <= 17:
+        return "0_17"
+    if age <= 39:
+        return "18_39"
+    if age <= 59:
+        return "40_59"
+    if age <= 79:
+        return "60_79"
+    return "80_PLUS"
 
 
-def _gender_token(value: Any) -> str | None:
+def _gender_token(value: Any) -> str:
     normalized = normalize_token_text(value, preserve_unknown=True)
     if normalized in {"F", "FEMALE"}:
         return "F"
     if normalized in {"M", "MALE"}:
         return "M"
-    return "UNKNOWN" if normalized is not None else None
+    return "UNKNOWN"
+
+
+def _unit_admit_source_token(value: Any) -> str:
+    normalized = normalize_token_text(value, preserve_unknown=True)
+    if normalized is None or normalized == "UNKNOWN":
+        return "UNKNOWN"
+    return normalized
+
+
+def _unit_type_token(value: Any) -> str:
+    normalized = normalize_token_text(value, preserve_unknown=True)
+    if normalized is None or normalized == "UNKNOWN":
+        return "UNKNOWN"
+    return normalized
+
+
+def _is_prohibited_token(token: str) -> bool:
+    upper = token.upper()
+    prohibited = (
+        "PATIENTUNITSTAYID",
+        "PATIENTHEALTHSYSTEMSTAYID",
+        "UNIQUEPID",
+        "HOSPITALID",
+        "WARDID",
+        "ETHNICITY",
+        "ACTIVEUPONDISCHARGE",
+        "APACHE",
+        "DISCHARGE",
+    )
+    return any(frag in upper for frag in prohibited)
 
 
 def _event_time(value: Any) -> EventTime:
@@ -805,6 +839,57 @@ def apply_numeric_bin(
     return "Q4"
 
 
+def _iter_vital_measurements(
+    tables: Mapping[str, pd.DataFrame]
+) -> Iterable[tuple[PatientStayId, str | None, Any, EventTime]]:
+    vital_obs = {}
+    valid_vitals = {
+        "temperature",
+        "sao2",
+        "heartrate",
+        "respiration",
+        "noninvasivesystolic",
+        "noninvasivediastolic",
+        "noninvasivemean",
+    }
+    skipped_raw_vitals = []
+
+    for table_name in _VITAL_TABLES:
+        frame = tables.get(table_name)
+        if frame is None:
+            continue
+        _require_stay_column(frame, table_name)
+        cols = [c for c in frame.columns if c in valid_vitals]
+        for _, row in frame.iterrows():
+            stay_id = row["patientunitstayid"]
+            if pd.isna(stay_id):
+                continue
+            offset_val = row.get("observationoffset")
+            event_time = _event_time(offset_val)
+            if event_time is None or event_time < 0 or event_time > 1440:
+                continue
+            bucket_idx = min(23, int(event_time // 60))
+            for col in cols:
+                val = row[col]
+                num_val = _numeric_value(val)
+                if num_val is None:
+                    skipped_raw_vitals.append((stay_id, f"VITAL::{normalize_token_text(col)}", val, event_time))
+                    continue
+                var_name = normalize_token_text(col)
+                if var_name is None:
+                    continue
+                key = (stay_id, var_name, bucket_idx)
+                vital_obs.setdefault(key, []).append(num_val)
+
+    for (stay_id, var_name, bucket_idx), vals in vital_obs.items():
+        med_val = float(pd.Series(vals, dtype=float).median())
+        final_minute = (bucket_idx + 1) * 60
+        yield stay_id, f"VITAL::{var_name}", med_val, final_minute
+
+    for stay_id, measurement, val, event_time in skipped_raw_vitals:
+        yield stay_id, measurement, val, event_time
+
+
 def _iter_numeric_measurements(
     tables: Mapping[str, pd.DataFrame],
 ) -> Iterable[tuple[PatientStayId, str | None, Any, EventTime]]:
@@ -813,72 +898,149 @@ def _iter_numeric_measurements(
         _require_stay_column(lab, "lab")
         name_column, value_column, offset_column = _LAB_EVENT_FIELDS
         if value_column in lab.columns:
-            for _, row in lab.iterrows():
+            last_indices = {}
+            for idx, row in lab.iterrows():
                 stay_id = row["patientunitstayid"]
                 if pd.isna(stay_id):
                     continue
-                measurement = (
-                    normalize_token_text(row[name_column])
-                    if name_column in lab.columns
-                    else None
-                )
-                event_time = (
-                    _event_time(row[offset_column])
-                    if offset_column in lab.columns
-                    else None
-                )
-                yield stay_id, (
-                    f"LAB::{measurement}" if measurement is not None else None
-                ), row[value_column], event_time
+                measurement = normalize_token_text(row[name_column]) if name_column in lab.columns else None
+                event_time = _event_time(row[offset_column]) if offset_column in lab.columns else None
+                if event_time is not None and (event_time < 0 or event_time > 1440):
+                    continue
+                key = (stay_id, measurement, event_time)
+                last_indices[key] = idx
 
-    for table_name in _VITAL_TABLES:
-        frame = tables.get(table_name)
-        if frame is None:
-            continue
-        _require_stay_column(frame, table_name)
-        value_columns = [
-            column
-            for column in frame.columns
-            if column not in _NUMERIC_METADATA_COLUMNS
-            and not column.casefold().endswith("id")
-            and not column.casefold().endswith("offset")
-        ]
-        for _, row in frame.iterrows():
-            stay_id = row["patientunitstayid"]
-            if pd.isna(stay_id):
-                continue
-            event_time = (
-                _event_time(row["observationoffset"])
-                if "observationoffset" in frame.columns
-                else None
-            )
-            for column in value_columns:
-                measurement = normalize_token_text(column)
-                yield stay_id, (
-                    f"VITAL::{measurement}" if measurement is not None else None
-                ), row[column], event_time
+            for idx, row in lab.iterrows():
+                stay_id = row["patientunitstayid"]
+                if pd.isna(stay_id):
+                    continue
+                measurement = normalize_token_text(row[name_column]) if name_column in lab.columns else None
+                event_time = _event_time(row[offset_column]) if offset_column in lab.columns else None
+                if event_time is not None and (event_time < 0 or event_time > 1440):
+                    continue
+                key = (stay_id, measurement, event_time)
+                if last_indices[key] != idx:
+                    continue
+                yield stay_id, (f"LAB::{measurement}" if measurement is not None else None), row[value_column], event_time
+
+    yield from _iter_vital_measurements(tables)
+
+
+def compute_quantiles_externally(
+    values: Iterable[float], temp_dir: Path
+) -> tuple[float, float, float]:
+    chunk = []
+    run_paths = []
+    total_count = 0
+    chunk_size = 10000
+
+    for val in values:
+        chunk.append(val)
+        total_count += 1
+        if len(chunk) >= chunk_size:
+            chunk.sort()
+            run_path = temp_dir / f"run_{len(run_paths)}.txt"
+            with open(run_path, "w") as f:
+                for v in chunk:
+                    f.write(f"{v}\n")
+            run_paths.append(run_path)
+            chunk = []
+
+    if chunk:
+        chunk.sort()
+        run_path = temp_dir / f"run_{len(run_paths)}.txt"
+        with open(run_path, "w") as f:
+            for v in chunk:
+                f.write(f"{v}\n")
+        run_paths.append(run_path)
+
+    if total_count < 50:
+        raise ValueError("At least 50 observations are required")
+
+    files = [open(p, "r") for p in run_paths]
+
+    def gen_file_values(f):
+        for line in f:
+            yield float(line.strip())
+
+    import heapq
+    import math
+
+    merged_iter = heapq.merge(*(gen_file_values(f) for f in files))
+
+    targets = [
+        0.25 * (total_count - 1),
+        0.50 * (total_count - 1),
+        0.75 * (total_count - 1),
+    ]
+    target_indices = []
+    for t in targets:
+        target_indices.append(int(math.floor(t)))
+        target_indices.append(int(math.ceil(t)))
+    unique_target_indices = sorted(list(set(target_indices)))
+
+    saved_values = {}
+    current_idx = 0
+    target_idx_set = set(unique_target_indices)
+
+    for val in merged_iter:
+        if current_idx in target_idx_set:
+            saved_values[current_idx] = val
+        current_idx += 1
+
+    for f in files:
+        f.close()
+    for p in run_paths:
+        p.unlink()
+
+    results = []
+    for t in targets:
+        low_idx = int(math.floor(t))
+        high_idx = int(math.ceil(t))
+        low_val = saved_values[low_idx]
+        high_val = saved_values[high_idx]
+        if low_idx == high_idx:
+            results.append(low_val)
+        else:
+            results.append(low_val + (high_val - low_val) * (t - low_idx))
+
+    return float(results[0]), float(results[1]), float(results[2])
 
 
 def fit_numeric_bins(
     tables: Mapping[str, pd.DataFrame],
+    train_stay_ids: set[PatientStayId] | None = None,
 ) -> dict[str, tuple[float, float, float]]:
     """Fit per-measurement quartile thresholds from lab and vital rows."""
     if not isinstance(tables, Mapping):
         raise ValueError("tables must be a mapping of eICU table names to DataFrames")
 
     values_by_measurement: dict[str, list[float]] = {}
-    for _, measurement, value, _ in _iter_numeric_measurements(tables):
+    for stay_id, measurement, value, _ in _iter_numeric_measurements(tables):
+        if train_stay_ids is not None and stay_id not in train_stay_ids:
+            continue
         numeric = _numeric_value(value)
         if measurement is None or numeric is None:
             continue
         values_by_measurement.setdefault(measurement, []).append(numeric)
 
     thresholds: dict[str, tuple[float, float, float]] = {}
-    for measurement in sorted(values_by_measurement):
-        quantiles = pd.Series(values_by_measurement[measurement], dtype=float).quantile(
-            [0.25, 0.5, 0.75]
-        )
-        thresholds[measurement] = tuple(float(value) for value in quantiles)
+    
+    import tempfile
+    from pathlib import Path
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        for measurement in sorted(values_by_measurement):
+            vals = values_by_measurement[measurement]
+            if len(vals) < 50:
+                continue
+            try:
+                q = compute_quantiles_externally(vals, tmp_path)
+                thresholds[measurement] = q
+            except ValueError:
+                continue
+                
     return thresholds
 
 
@@ -958,16 +1120,8 @@ def _extract_static_events(
     field_builders = (
         ("age", "AGE_BIN", age_bin),
         ("gender", "GENDER", _gender_token),
-        (
-            "hospitaladmitsource",
-            "ADMISSION_SOURCE",
-            lambda value: normalize_token_text(value, preserve_unknown=True),
-        ),
-        (
-            "unittype",
-            "UNIT_TYPE",
-            lambda value: normalize_token_text(value, preserve_unknown=True),
-        ),
+        ("unitadmitsource", "UNIT_ADMIT_SOURCE", _unit_admit_source_token),
+        ("unittype", "UNIT_TYPE", _unit_type_token),
     )
     events: dict[PatientStayId, list[tuple[str, EventTime]]] = {}
     seen: dict[PatientStayId, set[str]] = {}
@@ -976,12 +1130,15 @@ def _extract_static_events(
         if pd.isna(stay_id):
             continue
         for column, token_name, builder in field_builders:
-            if column not in patient.columns:
-                continue
-            suffix = builder(row[column])
+            if column in patient.columns:
+                suffix = builder(row[column])
+            else:
+                suffix = "UNKNOWN"
             if suffix is None:
-                continue
+                suffix = "UNKNOWN"
             token = f"STATIC::{token_name}::{suffix}"
+            if _is_prohibited_token(token):
+                continue
             stay_seen = seen.setdefault(stay_id, set())
             if token not in stay_seen:
                 events.setdefault(stay_id, []).append((token, None))
@@ -1000,22 +1157,51 @@ def _extract_clinical_categorical_events(
         if frame is None:
             continue
         _require_stay_column(frame, table_name)
-        if value_column not in frame.columns:
-            continue
 
         for _, row in frame.iterrows():
             stay_id = row["patientunitstayid"]
             if pd.isna(stay_id):
                 continue
-            suffix = normalize_token_text(row[value_column])
-            if suffix is None:
+
+            event_time = None
+            if offset_column in frame.columns:
+                event_time = _event_time(row[offset_column])
+
+            if event_time is None or event_time < 0 or event_time > 1440:
                 continue
-            event_time = (
-                _event_time(row[offset_column])
-                if offset_column in frame.columns
-                else None
-            )
-            token = f"{family}::{suffix}"
+
+            token = None
+            if table_name == "diagnosis":
+                if value_column in frame.columns:
+                    suffix = normalize_token_text(row[value_column])
+                    if suffix is not None and suffix != "UNKNOWN":
+                        token = f"DX::{suffix}"
+            elif table_name == "medication":
+                suffix = None
+                if value_column in frame.columns:
+                    suffix = normalize_token_text(row[value_column])
+                if suffix is None or suffix == "UNKNOWN":
+                    hicl = row.get("drughiclseqno")
+                    if pd.notna(hicl) and str(hicl).strip() != "":
+                        hicl_suffix = normalize_token_text(hicl)
+                        if hicl_suffix is not None:
+                            token = f"MED::HICL::{hicl_suffix}"
+                else:
+                    token = f"MED::{suffix}"
+            elif table_name == "infusionDrug":
+                if value_column in frame.columns:
+                    suffix = normalize_token_text(row[value_column])
+                    if suffix is not None and suffix != "UNKNOWN":
+                        token = f"INFUSION::{suffix}"
+            elif table_name == "treatment":
+                if value_column in frame.columns:
+                    suffix = normalize_token_text(row[value_column])
+                    if suffix is not None and suffix != "UNKNOWN":
+                        token = f"TREATMENT::{suffix}"
+
+            if token is None or _is_prohibited_token(token):
+                continue
+
             event_key = (token, event_time)
             stay_seen = seen.setdefault(stay_id, set())
             if event_key in stay_seen:

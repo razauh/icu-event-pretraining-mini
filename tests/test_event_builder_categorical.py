@@ -1,5 +1,3 @@
-"""Tests for deterministic categorical eICU event extraction."""
-
 from __future__ import annotations
 
 import pandas as pd
@@ -14,7 +12,7 @@ def test_extracts_static_and_clinical_categorical_events() -> None:
                 "patientunitstayid": [101],
                 "age": [65],
                 "gender": ["Female"],
-                "hospitaladmitsource": [" Emergency Department "],
+                "unitadmitsource": [" Emergency Department "],
                 "unittype": ["Med-Surg ICU"],
             }
         ),
@@ -53,9 +51,9 @@ def test_extracts_static_and_clinical_categorical_events() -> None:
     events = extract_categorical_events(tables, representation="timegap_static")
 
     assert events[101] == [
-        ("STATIC::AGE_BIN::60_70", None),
+        ("STATIC::AGE_BIN::60_79", None),
         ("STATIC::GENDER::F", None),
-        ("STATIC::ADMISSION_SOURCE::EMERGENCY_DEPARTMENT", None),
+        ("STATIC::UNIT_ADMIT_SOURCE::EMERGENCY_DEPARTMENT", None),
         ("STATIC::UNIT_TYPE::MED_SURG_ICU", None),
         ("MED::NOREPINEPHRINE_4_MG_250_ML", 10),
         ("DX::RESPIRATORY_FAILURE", 20),
@@ -95,7 +93,7 @@ def test_age_masking_and_unknown_static_values_are_deterministic() -> None:
             "patientunitstayid": [101, 102],
             "age": ["> 89", "unknown"],
             "gender": ["Other", None],
-            "hospitaladmitsource": ["Unknown", None],
+            "unitadmitsource": ["Unknown", None],
         }
     )
 
@@ -104,11 +102,17 @@ def test_age_masking_and_unknown_static_values_are_deterministic() -> None:
     )
 
     assert events[101] == [
-        ("STATIC::AGE_BIN::90_PLUS", None),
+        ("STATIC::AGE_BIN::80_PLUS", None),
         ("STATIC::GENDER::UNKNOWN", None),
-        ("STATIC::ADMISSION_SOURCE::UNKNOWN", None),
+        ("STATIC::UNIT_ADMIT_SOURCE::UNKNOWN", None),
+        ("STATIC::UNIT_TYPE::UNKNOWN", None),
     ]
-    assert 102 not in events
+    assert events[102] == [
+        ("STATIC::AGE_BIN::UNKNOWN", None),
+        ("STATIC::GENDER::UNKNOWN", None),
+        ("STATIC::UNIT_ADMIT_SOURCE::UNKNOWN", None),
+        ("STATIC::UNIT_TYPE::UNKNOWN", None),
+    ]
 
 
 def test_nulls_duplicates_equal_offsets_and_missing_offsets_are_handled() -> None:
@@ -123,7 +127,7 @@ def test_nulls_duplicates_equal_offsets_and_missing_offsets_are_handled() -> Non
         "medication": pd.DataFrame(
             {
                 "patientunitstayid": [101, 101],
-                "drugstartoffset": [None, "not recorded"],
+                "drugstartoffset": [None, 20],
                 "drugname": ["Vancomycin", "  Aspirin 81 mg  "],
             }
         ),
@@ -134,8 +138,7 @@ def test_nulls_duplicates_equal_offsets_and_missing_offsets_are_handled() -> Non
     assert events[101] == [
         ("DX::ACIDOSIS", 10),
         ("DX::SEPSIS", 10),
-        ("MED::ASPIRIN_81_MG", None),
-        ("MED::VANCOMYCIN", None),
+        ("MED::ASPIRIN_81_MG", 20),
     ]
 
 
@@ -149,4 +152,50 @@ def test_missing_optional_tables_and_columns_do_not_crash() -> None:
 
     assert extract_categorical_events(
         tables, representation="timegap_static"
-    ) == {101: [("STATIC::AGE_BIN::40_50", None)]}
+    ) == {
+        101: [
+            ("STATIC::AGE_BIN::40_59", None),
+            ("STATIC::GENDER::UNKNOWN", None),
+            ("STATIC::UNIT_ADMIT_SOURCE::UNKNOWN", None),
+            ("STATIC::UNIT_TYPE::UNKNOWN", None),
+        ]
+    }
+
+
+def test_medication_hicl_fallback() -> None:
+    tables = {
+        "medication": pd.DataFrame(
+            {
+                "patientunitstayid": [101, 101],
+                "drugstartoffset": [15, 30],
+                "drugname": [None, "unknown"],
+                "drughiclseqno": [1234, 5678],
+            }
+        )
+    }
+    events = extract_categorical_events(tables, representation="basic")
+    assert events[101] == [
+        ("MED::HICL::1234", 15),
+        ("MED::HICL::5678", 30),
+    ]
+
+
+def test_leakage_prohibited_tokens() -> None:
+    tables = {
+        "diagnosis": pd.DataFrame(
+            {
+                "patientunitstayid": [101],
+                "diagnosisoffset": [5],
+                "diagnosisstring": ["Sepsis with patientunitstayid in it"],
+            }
+        ),
+        "treatment": pd.DataFrame(
+            {
+                "patientunitstayid": [101],
+                "treatmentoffset": [10],
+                "treatmentstring": ["ActiveUponDischarge"],
+            }
+        ),
+    }
+    events = extract_categorical_events(tables, representation="basic")
+    assert 101 not in events
