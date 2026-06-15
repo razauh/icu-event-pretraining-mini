@@ -22,7 +22,7 @@ Last updated: 2026-06-07
 | TDD-06 - Static and Categorical Event Extraction | Implemented |
 | TDD-07 - Training-Only Numeric Fitting and Vital Aggregation | Implemented |
 | TDD-08 - Leakage-Controlled Event Stream Assembly | Implemented |
-| TDD-09 - eICU Preparation CLI and Local Artifacts | Remaining |
+| TDD-09 - eICU Preparation CLI and Local Artifacts | Implemented |
 | TDD-10 - Training-Only Tokenizer and Vocabulary | Remaining |
 | TDD-11 - Encoded Dataset Creation | Remaining |
 | TDD-12 - Padding, Attention Masks, and MLM Corruption | Remaining |
@@ -466,7 +466,7 @@ are ready for tokenization.
 
 ## TDD-09 - eICU Preparation CLI and Local Artifacts
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Orchestrate cohort selection, splitting, fitted preprocessing, and
 event construction into ignored local artifacts.

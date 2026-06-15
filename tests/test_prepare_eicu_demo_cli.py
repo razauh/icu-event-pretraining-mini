@@ -20,23 +20,37 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "prepare_eicu_demo.py"
 
 def _write_synthetic_tables(raw_dir: Path) -> None:
     raw_dir.mkdir(parents=True)
+    cols = {
+        "patient": ["patientunitstayid", "uniquepid", "hospitalid", "hospitaldischargestatus", "unitdischargeoffset", "age", "gender"],
+        "apachePatientResult": ["patientunitstayid"],
+        "diagnosis": ["patientunitstayid", "diagnosisstring", "diagnosisoffset"],
+        "lab": ["patientunitstayid", "labname", "labresult", "labresultoffset"],
+        "medication": ["patientunitstayid", "drugname", "drughiclseqno", "drugstartoffset"],
+        "infusionDrug": ["patientunitstayid", "drugname", "infusionoffset"],
+        "treatment": ["patientunitstayid", "treatmentstring", "treatmentoffset"],
+        "vitalPeriodic": ["patientunitstayid", "observationoffset"],
+        "vitalAperiodic": ["patientunitstayid", "observationoffset"],
+    }
     for table_name in MVP_TABLES:
-        frame = pd.DataFrame({"patientunitstayid": pd.Series(dtype="int64")})
+        frame = pd.DataFrame(columns=cols[table_name])
         frame.to_csv(table_path(raw_dir, table_name), index=False)
 
     pd.DataFrame(
         {
-            "patientunitstayid": [101],
-            "age": [65],
-            "gender": ["Female"],
-            "hospitaldischargestatus": ["Alive"],
+            "patientunitstayid": [101, 102, 103, 104, 105, 106],
+            "uniquepid": ["P101", "P102", "P103", "P104", "P105", "P106"],
+            "hospitalid": [1, 1, 1, 1, 1, 1],
+            "hospitaldischargestatus": ["Alive", "Alive", "Alive", "Expired", "Expired", "Expired"],
+            "unitdischargeoffset": [1440, 1440, 1440, 1440, 1440, 1440],
+            "age": [65, 65, 65, 65, 65, 65],
+            "gender": ["Female", "Female", "Female", "Female", "Female", "Female"],
         }
     ).to_csv(table_path(raw_dir, "patient"), index=False)
     pd.DataFrame(
         {
-            "patientunitstayid": [101, 101],
-            "diagnosisoffset": [0, 60],
-            "diagnosisstring": ["Sepsis", "Acidosis"],
+            "patientunitstayid": [101, 101, 101, 101, 101],
+            "diagnosisoffset": [0, 60, 120, 180, 240],
+            "diagnosisstring": ["Sepsis", "Acidosis", "Shock", "Fever", "Hypotension"],
         }
     ).to_csv(table_path(raw_dir, "diagnosis"), index=False)
 
@@ -74,6 +88,15 @@ def test_cli_writes_expected_processed_artifacts(tmp_path: Path) -> None:
         "event_streams.jsonl",
         "outcomes.csv",
         "event_stats.json",
+        "cohort_summary.json",
+        "split_metadata.json",
+        "preprocessing_metadata.json",
+        "state.json",
+        "run.log",
+        "events.jsonl",
+        "manifests",
+        "event_shards",
+        "work",
     }
     streams = read_event_streams_jsonl(out_dir / "event_streams.jsonl")
     assert len(streams) == 1
@@ -200,6 +223,116 @@ def test_cli_keeps_all_outputs_within_requested_directory(tmp_path: Path) -> Non
     )
 
     assert result.returncode == 0, result.stderr
-    generated_names = {"event_streams.jsonl", "outcomes.csv", "event_stats.json"}
+    generated_names = {
+        "event_streams.jsonl",
+        "outcomes.csv",
+        "event_stats.json",
+        "cohort_summary.json",
+        "split_metadata.json",
+        "preprocessing_metadata.json",
+        "state.json",
+        "run.log",
+        "events.jsonl",
+        "manifests",
+        "event_shards",
+        "work",
+    }
     assert generated_names.isdisjoint(path.name for path in tmp_path.iterdir())
     assert generated_names == {path.name for path in out_dir.iterdir()}
+
+
+def test_cli_resume_skips_completed_stages(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    out_dir = tmp_path / "processed"
+    _write_synthetic_tables(raw_dir)
+
+    result1 = _run_cli(
+        "--raw_dir",
+        str(raw_dir),
+        "--out_dir",
+        str(out_dir),
+    )
+    assert result1.returncode == 0, result1.stderr
+
+    log1_content = (out_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert "skipped" not in log1_content
+
+    result2 = _run_cli(
+        "--raw_dir",
+        str(raw_dir),
+        "--out_dir",
+        str(out_dir),
+        "--resume",
+        "auto",
+    )
+    assert result2.returncode == 0, result2.stderr
+
+    log2_content = (out_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert "skipped" in log2_content
+
+
+def test_cli_restart_stage_discards_downstream(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    out_dir = tmp_path / "processed"
+    _write_synthetic_tables(raw_dir)
+
+    result1 = _run_cli(
+        "--raw_dir",
+        str(raw_dir),
+        "--out_dir",
+        str(out_dir),
+    )
+    assert result1.returncode == 0, result1.stderr
+
+    result2 = _run_cli(
+        "--raw_dir",
+        str(raw_dir),
+        "--out_dir",
+        str(out_dir),
+        "--restart-stage",
+        "fit_training_preprocessing",
+    )
+    assert result2.returncode == 0, result2.stderr
+
+    log_content = (out_dir / "events.jsonl").read_text(encoding="utf-8")
+    completed_stages = []
+    for line in log_content.splitlines():
+        if not line.strip():
+            continue
+        data = json.loads(line)
+        if data["status"] == "completed":
+            completed_stages.append(data["stage"])
+    
+    assert "fit_training_preprocessing" in completed_stages
+    assert "assemble_stream_shards" in completed_stages
+
+
+def test_cli_incompatible_resume_raises_error(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    out_dir = tmp_path / "processed"
+    _write_synthetic_tables(raw_dir)
+
+    result1 = _run_cli(
+        "--raw_dir",
+        str(raw_dir),
+        "--out_dir",
+        str(out_dir),
+    )
+    assert result1.returncode == 0, result1.stderr
+
+    manifest_path = out_dir / "manifests" / "discover_inputs" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["config_hash"] = "corrupted_hash_to_trigger_incompatibility"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result2 = _run_cli(
+        "--raw_dir",
+        str(raw_dir),
+        "--out_dir",
+        str(out_dir),
+        "--resume",
+        "auto",
+    )
+    assert result2.returncode != 0
+    assert "incompatible" in result2.stderr
+
