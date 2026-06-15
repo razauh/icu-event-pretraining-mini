@@ -29,7 +29,7 @@ Last updated: 2026-06-07
 | TDD-13 - ICU-TinyTransformer Encoder | Implemented |
 | TDD-14 - Masked Event and Mortality Heads | Implemented |
 | TDD-15 - Masked Event Pretraining Workflow | Implemented |
-| TDD-16 - Metrics, Threshold Selection, and Patient Bootstrap | Remaining |
+| TDD-16 - Metrics, Threshold Selection, and Patient Bootstrap | Implemented |
 | TDD-17 - Bag-of-Events Logistic Baseline | Remaining |
 | TDD-18 - Scratch and Pretrained Fine-Tuning | Remaining |
 | TDD-19 - Run Logging, Recovery State, and Aggregate Tracking | Remaining |
@@ -39,7 +39,7 @@ Last updated: 2026-06-07
 | TDD-23 - Optional Memorisation Diagnostic | Remaining |
 | TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
 
-Progress: **14 implemented, 11 remaining.**
+Progress: **15 implemented, 10 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
@@ -704,7 +704,7 @@ interrupted epoch.
 
 ## TDD-16 - Metrics, Threshold Selection, and Patient Bootstrap
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Centralize leakage-safe binary evaluation and uncertainty reporting.
 
