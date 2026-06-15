@@ -114,9 +114,10 @@ class EncodedDataset:
                 raise ValueError("shard must contain a list of stay records")
             for rec in stays_raw:
                 stay = self._parse_stay_record(rec)
-                if stay.patientunitstayid in self._stays:
+                if stay.patientunitstayid in self._stay_ids:
                     raise ValueError(f"duplicate stay identifier {stay.patientunitstayid}")
-                self._stays[stay.patientunitstayid] = stay
+                self._stay_ids.add(stay.patientunitstayid)
+                self._len += 1
 
     def _parse_stay_record(self, rec: object) -> EncodedStay:
         if not isinstance(rec, dict):
@@ -137,14 +138,26 @@ class EncodedDataset:
     # ---------------------------------------------------------------------
     def stays(self) -> List[EncodedStay]:
         """Return a list of all encoded stays in deterministic order."""
-        return [self._stays[k] for k in sorted(self._stays)]
+        all_stays = []
+        for entry in self._index:
+            shard_path = self.root / f"shard_{entry.shard_id}.json"
+            content = shard_path.read_bytes()
+            stays_raw = json.loads(content.decode("utf-8"))
+            for rec in stays_raw:
+                all_stays.append(self._parse_stay_record(rec))
+        all_stays.sort(key=lambda s: s.patientunitstayid)
+        return all_stays
 
     def __len__(self) -> int:
-        return len(self._stays)
+        return self._len
 
     def __iter__(self):
-        for stay in self.stays():
-            yield stay
+        for entry in self._index:
+            shard_path = self.root / f"shard_{entry.shard_id}.json"
+            content = shard_path.read_bytes()
+            stays_raw = json.loads(content.decode("utf-8"))
+            for rec in stays_raw:
+                yield self._parse_stay_record(rec)
 
     # ---------------------------------------------------------------------
     # Helper for test writers – creates a shard and updates the index.

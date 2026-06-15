@@ -182,6 +182,10 @@ def _clear_stage_outputs_single(out_dir: Path, stage_name: str) -> None:
         p = out_dir / "work" / "fit_vocabulary"
         if p.exists():
             shutil.rmtree(p)
+    elif stage_name == "encode_split_shards":
+        p = out_dir / "encoded"
+        if p.exists():
+            shutil.rmtree(p)
 
 
 def _clear_stage_and_downstream(out_dir: Path, stage_name: str) -> None:
@@ -192,6 +196,7 @@ def _clear_stage_and_downstream(out_dir: Path, stage_name: str) -> None:
         "fit_training_preprocessing",
         "assemble_stream_shards",
         "fit_vocabulary",
+        "encode_split_shards",
     ]
     if stage_name not in stages_list:
         raise ValueError(f"unknown stage name: {stage_name}")
@@ -893,6 +898,98 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
 
     check_and_run_stage("fit_vocabulary", ["assemble_stream_shards"], 64, run_fit_vocabulary)
+    
+    shards_dir = out_dir / "event_shards"
+    streams_by_split = {"train": [], "validation": [], "test": []}
+    if shards_dir.is_dir():
+        for shard_id in range(64):
+            shard_path = shards_dir / f"part-{shard_id}.jsonl.gz"
+            if shard_path.is_file():
+                with gzip.open(shard_path, "rt", encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        record = json.loads(line)
+                        split_name = record.get("split_name")
+                        if split_name in streams_by_split:
+                            streams_by_split[split_name].append(record)
+
+    all_shards_to_write = []
+    for split_name in ["train", "validation", "test"]:
+        records = streams_by_split[split_name]
+        records.sort(key=lambda r: str(r["patientunitstayid"]))
+        num_stays = len(records)
+        chunk_size = 128
+        num_chunks = (num_stays + chunk_size - 1) // chunk_size
+        for chunk_idx in range(num_chunks):
+            all_shards_to_write.append((split_name, chunk_idx, records[chunk_idx * chunk_size : (chunk_idx + 1) * chunk_size]))
+    encode_shard_count = len(all_shards_to_write) if all_shards_to_write else 1
+
+    def run_encode_split_shards(manifest: StageManifest, manifest_path: Path):
+        outcomes_path = out_dir / "outcomes.csv"
+        outcomes_df = pd.read_csv(outcomes_path)
+        outcome_by_stay = dict(zip(outcomes_df["patientunitstayid"].astype(str), outcomes_df["mortality"]))
+        tokenizer = EventTokenizer.load(out_dir / "vocab.json")
+        seen_stay_ids = set()
+        from icu_pretrain.data.dataset import EncodedDataset
+        for global_shard_id, (split_name, local_shard_id, chunk_records) in enumerate(all_shards_to_write):
+            if global_shard_id in manifest.completed_shards:
+                continue
+            stay_dicts = []
+            for record in chunk_records:
+                stay_id = str(record["patientunitstayid"])
+                if stay_id in seen_stay_ids:
+                    raise ValueError(f"duplicate stay identifier {stay_id}")
+                seen_stay_ids.add(stay_id)
+                if stay_id not in outcome_by_stay:
+                    raise ValueError(f"unlabeled stay identifier {stay_id}")
+                label = int(outcome_by_stay[stay_id])
+                events = record["events"]
+                encoded = tokenizer.encode(events)
+                final_tokens = [tokenizer.cls_id] + encoded
+                if len(final_tokens) > 256:
+                    final_tokens = final_tokens[:256]
+                stay_dicts.append({
+                    "patientunitstayid": stay_id,
+                    "tokens": final_tokens,
+                    "label": label,
+                    "split_name": split_name,
+                })
+            split_dir = out_dir / "encoded" / split_name
+            EncodedDataset.write_shard(stay_dicts, local_shard_id, split_dir)
+            manifest.completed_shards.append(global_shard_id)
+            manifest.updated_at = datetime.utcnow().isoformat() + "Z"
+            write_stage_manifest_json(manifest_path, manifest)
+
+        total_tokens = 0
+        unknown_tokens = 0
+        train_count = 0
+        val_count = 0
+        test_count = 0
+        for split_name, local_shard_id, chunk_records in all_shards_to_write:
+            for record in chunk_records:
+                for token in record["events"]:
+                    total_tokens += 1
+                    if token not in tokenizer.vocab:
+                        unknown_tokens += 1
+                if split_name == "train":
+                    train_count += 1
+                elif split_name == "validation":
+                    val_count += 1
+                elif split_name == "test":
+                    test_count += 1
+        global_index_path = out_dir / "encoded" / "index.json"
+        global_index_path.write_text(json.dumps({"splits": ["train", "validation", "test"]}, indent=2), encoding="utf-8")
+        manifest.aggregate_counts = {
+            "train_stays": train_count,
+            "validation_stays": val_count,
+            "test_stays": test_count,
+            "total_tokens": total_tokens,
+            "unknown_tokens": unknown_tokens,
+            "unknown_token_fraction": unknown_tokens / total_tokens if total_tokens > 0 else 0.0,
+        }
+
+    check_and_run_stage("encode_split_shards", ["fit_vocabulary"], encode_shard_count, run_encode_split_shards)
     
     _log(out_dir, "pipeline", "completed", "preparation pipeline completed successfully")
     state.status = "completed"

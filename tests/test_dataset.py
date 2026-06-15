@@ -62,3 +62,19 @@ def test_token_length_exceeds_limit(tmp_path: Path):
     EncodedDataset.write_shard(shard0, shard_id=0, root=tmp_path)
     with pytest.raises(ValueError, match="tokens exceed max_seq_len"):
         EncodedDataset(tmp_path)
+
+
+def test_missing_shard_raises(tmp_path: Path):
+    shard0 = [make_stay("stay-1", [3, 5], 0, "train")]
+    EncodedDataset.write_shard(shard0, shard_id=0, root=tmp_path)
+    (tmp_path / "shard_0.json").unlink()
+    with pytest.raises(ValueError, match="shard file missing"):
+        EncodedDataset(tmp_path)
+
+
+def test_checksum_mismatch_raises(tmp_path: Path):
+    shard0 = [make_stay("stay-1", [3, 5], 0, "train")]
+    EncodedDataset.write_shard(shard0, shard_id=0, root=tmp_path)
+    (tmp_path / "shard_0.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        EncodedDataset(tmp_path)

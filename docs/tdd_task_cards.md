@@ -25,7 +25,7 @@ Last updated: 2026-06-07
 | TDD-09 - eICU Preparation CLI and Local Artifacts | Implemented |
 | TDD-10 - Training-Only Tokenizer and Vocabulary | Implemented |
 | TDD-11 - Encoded Dataset Creation | Implemented |
-| TDD-12 - Padding, Attention Masks, and MLM Corruption | Implemented |
+| TDD-12 - Padding, Attention Masks, and MLM Corruption | Remaining |
 | TDD-13 - ICU-TinyTransformer Encoder | Remaining |
 | TDD-14 - Masked Event and Mortality Heads | Remaining |
 | TDD-15 - Masked Event Pretraining Workflow | Remaining |
@@ -542,7 +542,7 @@ training-derived vocabulary.
 
 ## TDD-11 - Encoded Dataset Creation
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Encode split-specific streams and labels into restartable local shards
 without losing provenance.
@@ -609,7 +609,7 @@ fine-tuning without leakage or nondeterministic tests.
 
 ## TDD-13 - ICU-TinyTransformer Encoder
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Implement the compact shared encoder for all neural experiments.
 

@@ -98,6 +98,7 @@ def test_cli_writes_expected_processed_artifacts(tmp_path: Path) -> None:
         "manifests",
         "event_shards",
         "work",
+        "encoded",
     }
     streams = read_event_streams_jsonl(out_dir / "event_streams.jsonl")
     assert len(streams) == 1
@@ -238,6 +239,7 @@ def test_cli_keeps_all_outputs_within_requested_directory(tmp_path: Path) -> Non
         "manifests",
         "event_shards",
         "work",
+        "encoded",
     }
     assert generated_names.isdisjoint(path.name for path in tmp_path.iterdir())
     assert generated_names == {path.name for path in out_dir.iterdir()}
