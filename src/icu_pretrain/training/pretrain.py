@@ -221,7 +221,7 @@ def train_model(
     if last_checkpoint_path is not None:
         if not last_checkpoint_path.is_file():
             raise FileNotFoundError(f"Checkpoint not found: {last_checkpoint_path}")
-        checkpoint = torch.load(last_checkpoint_path, map_location="cpu")
+        checkpoint = torch.load(last_checkpoint_path, map_location="cpu", weights_only=False)
         validate_checkpoint_contract(checkpoint, expected_artifact_hashes=artifact_hashes)
         model.load_state_dict(checkpoint.model_state)
         head.load_state_dict(checkpoint.prediction_head_state)

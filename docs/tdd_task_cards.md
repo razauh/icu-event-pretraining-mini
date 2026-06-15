@@ -31,7 +31,7 @@ Last updated: 2026-06-07
 | TDD-15 - Masked Event Pretraining Workflow | Implemented |
 | TDD-16 - Metrics, Threshold Selection, and Patient Bootstrap | Implemented |
 | TDD-17 - Bag-of-Events Logistic Baseline | Implemented |
-| TDD-18 - Scratch and Pretrained Fine-Tuning | Remaining |
+| TDD-18 - Scratch and Pretrained Fine-Tuning | Implemented |
 | TDD-19 - Run Logging, Recovery State, and Aggregate Tracking | Remaining |
 | TDD-20 - Core Experiment Registry and Runner | Remaining |
 | TDD-21 - Optional Eight-Trial Optuna Search | Remaining |
@@ -39,7 +39,7 @@ Last updated: 2026-06-07
 | TDD-23 - Optional Memorisation Diagnostic | Remaining |
 | TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
 
-Progress: **16 implemented, 9 remaining.**
+Progress: **17 implemented, 8 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
@@ -766,7 +766,7 @@ tokens, severe imbalance.
 
 ## TDD-18 - Scratch and Pretrained Fine-Tuning
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Implement EXP-01 through EXP-03 with controlled initialization and
 validation-only selection.
