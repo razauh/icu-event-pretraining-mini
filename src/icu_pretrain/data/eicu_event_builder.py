@@ -1437,30 +1437,22 @@ def read_event_streams_jsonl(path: str | Path) -> list[EventStream]:
 
 
 def _time_gap_token(gap_minutes: float) -> str | None:
-    """Return a compact token for a positive interval measured in minutes."""
     if gap_minutes <= 0:
         return None
     if gap_minutes <= 15:
-        bucket = "LE_15M"
-    elif gap_minutes <= 60:
-        bucket = "15M_1H"
-    elif gap_minutes <= 180:
-        bucket = "1H_3H"
-    elif gap_minutes <= 360:
-        bucket = "3H_6H"
-    elif gap_minutes <= 720:
-        bucket = "6H_12H"
-    elif gap_minutes <= 1440:
-        bucket = "12H_24H"
-    else:
-        bucket = "GT_24H"
-    return f"TIME_GAP::{bucket}"
+        return "TIME_GAP::0_15M"
+    if gap_minutes <= 60:
+        return "TIME_GAP::16_60M"
+    if gap_minutes <= 180:
+        return "TIME_GAP::61_180M"
+    if gap_minutes <= 360:
+        return "TIME_GAP::181_360M"
+    return "TIME_GAP::GT_360M"
 
 
 def _insert_time_gap_events(
     events: list[tuple[str, EventTime]],
 ) -> list[tuple[str, EventTime]]:
-    """Insert gaps between consecutive timed clinical events."""
     with_gaps: list[tuple[str, EventTime]] = []
     previous_time: int | float | None = None
     for token, event_time in events:
@@ -1480,6 +1472,15 @@ def _all_stay_ids(tables: Mapping[str, pd.DataFrame]) -> set[PatientStayId]:
         if isinstance(frame, pd.DataFrame) and "patientunitstayid" in frame.columns:
             stay_ids.update(frame["patientunitstayid"].dropna().tolist())
     return stay_ids
+
+
+def _family_priority(token: str) -> int:
+    prefix = token.partition("::")[0]
+    order = ["DX", "LAB", "VITAL", "MED", "INFUSION", "TREATMENT"]
+    try:
+        return order.index(prefix)
+    except ValueError:
+        return 999
 
 
 def build_event_streams(
@@ -1534,21 +1535,84 @@ def build_event_streams(
             key=lambda event: (
                 event[1] is None,
                 event[1] if event[1] is not None else 0,
+                _family_priority(event[0]),
                 event[0],
             )
         )
-        if representation in {"timegap", "timegap_static"}:
-            clinical_events = _insert_time_gap_events(clinical_events)
 
-        combined = [*static_events, *clinical_events]
-        if len(combined) < min_events_per_stay:
+        original_counts = {family: 0 for family in EVENT_FAMILIES}
+        for token, _ in static_events:
+            original_counts[token.partition("::")[0]] += 1
+        for token, _ in clinical_events:
+            original_counts[token.partition("::")[0]] += 1
+
+        if len(clinical_events) < 5:
             continue
+
+        def build_seq(retained_clin):
+            if representation in {"timegap", "timegap_static"}:
+                gapped = _insert_time_gap_events(retained_clin)
+                return [*static_events, *gapped]
+            return [*static_events, *retained_clin]
+
+        full_seq = build_seq(clinical_events)
+        if len(full_seq) <= 256:
+            retained_combined = full_seq
+        else:
+            first_dyn = clinical_events[0]
+            last_dyn = clinical_events[-1]
+            middle_dyn = clinical_events[1:-1]
+
+            low = 0
+            high = len(middle_dyn)
+            best_seq = None
+
+            while low <= high:
+                mid = (low + high) // 2
+                if mid == 0:
+                    sampled = []
+                elif mid == 1:
+                    sampled = [middle_dyn[len(middle_dyn) // 2]]
+                else:
+                    L = len(middle_dyn)
+                    indices = [int(i * L / mid) for i in range(mid)]
+                    sampled = [middle_dyn[idx] for idx in indices]
+
+                retained = [first_dyn] + sampled + [last_dyn]
+                candidate_seq = build_seq(retained)
+
+                if len(candidate_seq) <= 256:
+                    best_seq = candidate_seq
+                    low = mid + 1
+                else:
+                    high = mid - 1
+
+            if best_seq is not None:
+                retained_combined = best_seq
+            else:
+                candidate_seq = build_seq([first_dyn, last_dyn])
+                retained_combined = candidate_seq[:256]
+
+        dyn_count = sum(1 for token, _ in retained_combined if not token.startswith("STATIC::") and not token.startswith("TIME_GAP::"))
+        if dyn_count < 5:
+            continue
+
+        if len(retained_combined) < min_events_per_stay:
+            continue
+
+        retained_counts = {family: 0 for family in EVENT_FAMILIES}
+        for token, _ in retained_combined:
+            retained_counts[token.partition("::")[0]] += 1
 
         stream = EventStream(
             patientunitstayid=stay_id,
-            events=[token for token, _ in combined],
-            event_times=[event_time for _, event_time in combined],
+            events=[token for token, _ in retained_combined],
+            event_times=[event_time for _, event_time in retained_combined],
             representation=representation,
+            metadata={
+                "original_counts": original_counts,
+                "retained_counts": retained_counts,
+            },
         )
         validate_event_stream(stream, min_events_per_stay=min_events_per_stay)
         streams.append(stream)

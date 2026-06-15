@@ -21,7 +21,7 @@ Last updated: 2026-06-07
 | TDD-05 - Patient-Grouped Train/Validation/Test Splits | Implemented |
 | TDD-06 - Static and Categorical Event Extraction | Implemented |
 | TDD-07 - Training-Only Numeric Fitting and Vital Aggregation | Implemented |
-| TDD-08 - Leakage-Controlled Event Stream Assembly | Remaining |
+| TDD-08 - Leakage-Controlled Event Stream Assembly | Implemented |
 | TDD-09 - eICU Preparation CLI and Local Artifacts | Remaining |
 | TDD-10 - Training-Only Tokenizer and Vocabulary | Remaining |
 | TDD-11 - Encoded Dataset Creation | Remaining |
@@ -425,7 +425,7 @@ training-derived statistics.
 
 ## TDD-08 - Leakage-Controlled Event Stream Assembly
 
-**Status:** Remaining.
+**Status:** Implemented.
 
 **Goal:** Merge extracted events into final first-24-hour ICU stay streams and
 apply deterministic length control.
