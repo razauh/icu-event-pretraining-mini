@@ -75,7 +75,11 @@ class EncodedDataset:
         if not self.root.is_dir():
             raise ValueError(f"encoded dataset root must be a directory: {self.root}")
         self._index: List[ShardIndexEntry] = self._read_index()
-        self._stays: Dict[str, EncodedStay] = {}
+        self._stay_ids: set[str] = set()
+        self._len: int = 0
+        self._stay_metadata: List[tuple[str, int, int]] = []
+        self._cached_shard_id: int | None = None
+        self._cached_stays_raw: List[Dict[str, object]] | None = None
         self._load_shards()
 
     # ---------------------------------------------------------------------
@@ -112,11 +116,12 @@ class EncodedDataset:
             stays_raw = json.loads(content.decode("utf-8"))
             if not isinstance(stays_raw, list):
                 raise ValueError("shard must contain a list of stay records")
-            for rec in stays_raw:
+            for local_idx, rec in enumerate(stays_raw):
                 stay = self._parse_stay_record(rec)
                 if stay.patientunitstayid in self._stay_ids:
                     raise ValueError(f"duplicate stay identifier {stay.patientunitstayid}")
                 self._stay_ids.add(stay.patientunitstayid)
+                self._stay_metadata.append((stay.patientunitstayid, entry.shard_id, local_idx))
                 self._len += 1
 
     def _parse_stay_record(self, rec: object) -> EncodedStay:
@@ -150,6 +155,17 @@ class EncodedDataset:
 
     def __len__(self) -> int:
         return self._len
+
+    def __getitem__(self, idx: int) -> EncodedStay:
+        if idx < 0 or idx >= self._len:
+            raise IndexError("index out of range")
+        stay_id, shard_id, local_idx = self._stay_metadata[idx]
+        if self._cached_shard_id != shard_id:
+            shard_path = self.root / f"shard_{shard_id}.json"
+            content = shard_path.read_bytes()
+            self._cached_stays_raw = json.loads(content.decode("utf-8"))
+            self._cached_shard_id = shard_id
+        return self._parse_stay_record(self._cached_stays_raw[local_idx])
 
     def __iter__(self):
         for entry in self._index:

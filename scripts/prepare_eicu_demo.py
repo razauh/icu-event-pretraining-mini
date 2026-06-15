@@ -923,7 +923,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         num_chunks = (num_stays + chunk_size - 1) // chunk_size
         for chunk_idx in range(num_chunks):
             all_shards_to_write.append((split_name, chunk_idx, records[chunk_idx * chunk_size : (chunk_idx + 1) * chunk_size]))
-    encode_shard_count = len(all_shards_to_write) if all_shards_to_write else 1
+    encode_shard_count = len(all_shards_to_write)
 
     def run_encode_split_shards(manifest: StageManifest, manifest_path: Path):
         outcomes_path = out_dir / "outcomes.csv"
@@ -979,6 +979,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 elif split_name == "test":
                     test_count += 1
         global_index_path = out_dir / "encoded" / "index.json"
+        (out_dir / "encoded").mkdir(parents=True, exist_ok=True)
         global_index_path.write_text(json.dumps({"splits": ["train", "validation", "test"]}, indent=2), encoding="utf-8")
         manifest.aggregate_counts = {
             "train_stays": train_count,
@@ -986,7 +987,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             "test_stays": test_count,
             "total_tokens": total_tokens,
             "unknown_tokens": unknown_tokens,
-            "unknown_token_fraction": unknown_tokens / total_tokens if total_tokens > 0 else 0.0,
         }
 
     check_and_run_stage("encode_split_shards", ["fit_vocabulary"], encode_shard_count, run_encode_split_shards)
