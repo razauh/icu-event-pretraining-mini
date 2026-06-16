@@ -9,6 +9,7 @@ from typing import Any
 
 from icu_pretrain.experiments.registry import EXPERIMENT_REGISTRY, EXPERIMENT_IDS
 from icu_pretrain.training.baselines import train_and_evaluate_logistic_baseline
+from icu_pretrain.training.federated import run_hospital_grouped_evaluation, run_fedavg_simulation
 from icu_pretrain.training.pretrain import train_model
 from icu_pretrain.training.finetune import train_finetuning_model
 from icu_pretrain.experiments.tracking import record_metrics, save_best_config, log_event
@@ -176,10 +177,9 @@ def run_single_experiment(
             results_path = exp_run_dir / "results.json"
             record_finetune_results(exp_id, representation, results_path, summary_dir)
         elif exp_id == "EXP-04":
-            raise NotImplementedError("Hospital-grouped evaluation is not implemented yet.")
+            run_hospital_grouped_evaluation(config_copy, processed_dir, exp_run_dir, resume=resume)
         elif exp_id == "EXP-05":
-            from icu_pretrain.training.federated import run_fedavg_simulation
-            run_fedavg_simulation()
+            run_fedavg_simulation(config_copy, processed_dir, exp_run_dir, resume=resume)
     except Exception as err:
         failed_data = {
             "experiment_id": exp_id,

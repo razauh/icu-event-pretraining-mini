@@ -114,6 +114,11 @@ def train_finetuning_model(
         pt_checkpoint = torch.load(pretrain_checkpoint, map_location="cpu", weights_only=False)
         if hasattr(pt_checkpoint, "model_state"):
             model.load_state_dict(pt_checkpoint.model_state)
+            if hasattr(pt_checkpoint, "prediction_head_state"):
+                try:
+                    head.load_state_dict(pt_checkpoint.prediction_head_state)
+                except RuntimeError:
+                    pass
         else:
             model.load_state_dict(pt_checkpoint)
 
