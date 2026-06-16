@@ -9,7 +9,7 @@ not inspect `data/raw/` or `data/processed/`.
 
 ## Implementation Status
 
-Last updated: 2026-06-07
+Last updated: 2026-06-16
 
 | Task card | Status |
 |---|---|
@@ -37,9 +37,9 @@ Last updated: 2026-06-07
 | TDD-21 - Optional Eight-Trial Optuna Search | Implemented |
 | TDD-22 - Hospital-Grouped Evaluation and FedAvg Simulation | Implemented |
 | TDD-23 - Optional Memorisation Diagnostic | Implemented |
-| TDD-24 - Result Assets, Documentation, and Application Polish | Remaining |
+| TDD-24 - Result Assets, Documentation, and Application Polish | Implemented |
 
-Progress: **22 implemented, 3 remaining.**
+Progress: **23 implemented, 2 remaining.**
 
 Resetting a card to Remaining does not require deleting reusable code. It means
 the implementation must be reviewed and changed until it satisfies this card.
